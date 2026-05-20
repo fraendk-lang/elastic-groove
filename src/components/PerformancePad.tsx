@@ -167,8 +167,6 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   const [chaosMode, setChaosMode] = useState<FxMode>("FILTER");
   const [chaosCollapsed, setChaosCollapsed] = useState(false);
   const [activeBeatFx, setActiveBeatFx] = useState<ReadonlySet<string>>(new Set());
-  // fxEvents is wired in Task 8 for loop playback recording.
-  void fxEvents;
   const arpSchedulerRef = useRef<ArpScheduler | null>(null);
   if (arpSchedulerRef.current === null) {
     arpSchedulerRef.current = new ArpScheduler();
@@ -829,6 +827,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
     // Sort by start time so iteration scheduling fires events in order
     pairedNotes.sort((a, b) => a.startT - b.startT);
     const sortedMoves = [...moves].sort((a, b) => a.t - b.t);
+    const sortedFxEvents = [...fxEvents].sort((a, b) => a.t - b.t);
 
     const dur = loopDuration;
     const timers: ReturnType<typeof setTimeout>[] = [];
@@ -926,6 +925,23 @@ export function PerformancePad({ isOpen, onClose }: Props) {
         }, Math.max(0, wallDelay));
         timers.push(timer);
       }
+      // FX automation layer — same wall-clock anchor as the notes.
+      for (const ev of sortedFxEvents) {
+        const wallDelay = (iterWallStart - performance.now()) + ev.t;
+        if (wallDelay < -20) continue; // already past this iteration
+        const timer = setTimeout(() => {
+          if (!usePerformancePadStore.getState().isLooping) return;
+          if (ev.kind === "xy") {
+            const b = useDrumStore.getState().bpm;
+            chaosFxBus.setXY("melody", ev.mode, ev.x, ev.y, b);
+          } else if (ev.kind === "beat-down") {
+            beatFxManager.startEffect(ev.fxId);
+          } else {
+            beatFxManager.stopEffect(ev.fxId);
+          }
+        }, Math.max(0, wallDelay));
+        timers.push(timer);
+      }
     };
 
     scheduleIteration(iterationAudioStart, wallStart);
@@ -972,7 +988,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
         arpSchedulerRef.current.stop();
       }
     };
-  }, [isLooping, events, loopDuration, xToMidi, fireVoice, modulateVoice, repitchVoice, gridSnap, target]);
+  }, [isLooping, events, fxEvents, loopDuration, xToMidi, fireVoice, modulateVoice, repitchVoice, gridSnap, target]);
 
   // ── Visual: chord/pitch grid + particle trail ──
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
