@@ -2,27 +2,14 @@
  * ChaosPad — shared Kaoss-style FX surface.
  *
  * Presentational only: a square XY canvas, a row of FX-mode buttons,
- * and a row of 6 Beat-FX hold buttons. All audio routing is done by
- * the host via the callback props.
+ * and a configurable row of Beat-FX hold buttons (driven by the `beatFx`
+ * prop — each host passes its own id-space + labels). All audio routing
+ * is done by the host via the callback props.
  */
 import { useRef, useState, useCallback } from "react";
 import {
   type FxMode, type FxTarget, FX_MODES, MODE_CONFIG,
 } from "../audio/ChaosFxBus";
-import { type BeatFxId } from "../audio/BeatFx";
-
-export type { BeatFxId };  // re-export for component consumers
-
-const BEAT_FX_IDS: BeatFxId[] = ["throw", "echo", "choke", "stutter", "roll", "noise"];
-
-const BEAT_FX_LABELS: Record<BeatFxId, string> = {
-  throw:   "THROW",
-  echo:    "ECHO",
-  choke:   "CHOKE",
-  stutter: "STUTT",
-  roll:    "ROLL",
-  noise:   "NOISE",
-};
 
 interface ChaosPadProps {
   /** Routing target — part of the component's public contract, makes the
@@ -36,18 +23,19 @@ interface ChaosPadProps {
   /** XY canvas press/release — host activates / releases the FX. */
   onXYDown: (mode: FxMode, x: number, y: number) => void;
   onXYUp: (mode: FxMode) => void;
-  /** Beat-FX hold buttons. */
-  onBeatFxDown: (id: BeatFxId) => void;
-  onBeatFxUp: (id: BeatFxId) => void;
+  /** List of Beat-FX hold-buttons to render. Empty array = no beat-FX row. */
+  beatFx: ReadonlyArray<{ id: string; label: string }>;
+  onBeatFxDown: (id: string) => void;
+  onBeatFxUp: (id: string) => void;
   /** Compact embedded variant (no target selector, tighter spacing). */
   compact?: boolean;
   /** Active Beat-FX set, for visual feedback. */
-  activeBeatFx?: ReadonlySet<BeatFxId>;
+  activeBeatFx?: ReadonlySet<string>;
 }
 
 export function ChaosPad({
   target: _target, mode, onModeChange, onXYMove, onXYDown, onXYUp,
-  onBeatFxDown, onBeatFxUp, compact = false,
+  beatFx, onBeatFxDown, onBeatFxUp, compact = false,
   activeBeatFx,
 }: ChaosPadProps) {
   const padRef = useRef<HTMLDivElement>(null);
@@ -129,23 +117,25 @@ export function ChaosPad({
         )}
       </div>
 
-      <div className="flex gap-1 px-2">
-        {BEAT_FX_IDS.map((id) => {
-          const isActive = activeBeatFx?.has(id) ?? false;
-          return (
-            <button
-              key={id}
-              onPointerDown={(e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch {/*ok*/} onBeatFxDown(id); }}
-              onPointerUp={() => onBeatFxUp(id)}
-              onPointerCancel={() => onBeatFxUp(id)}
-              onLostPointerCapture={() => onBeatFxUp(id)}
-              className={`flex-1 h-7 text-[9px] font-bold rounded transition-colors ${
-                isActive ? "bg-red-500/40 text-red-100" : "bg-white/5 text-white/60 hover:bg-white/10"
-              }`}
-            >{BEAT_FX_LABELS[id]}</button>
-          );
-        })}
-      </div>
+      {beatFx.length > 0 && (
+        <div className="flex gap-1 px-2">
+          {beatFx.map(({ id, label }) => {
+            const isActive = activeBeatFx?.has(id) ?? false;
+            return (
+              <button
+                key={id}
+                onPointerDown={(e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch {/*ok*/} onBeatFxDown(id); }}
+                onPointerUp={() => onBeatFxUp(id)}
+                onPointerCancel={() => onBeatFxUp(id)}
+                onLostPointerCapture={() => onBeatFxUp(id)}
+                className={`flex-1 h-7 text-[9px] font-bold rounded transition-colors ${
+                  isActive ? "bg-red-500/40 text-red-100" : "bg-white/5 text-white/60 hover:bg-white/10"
+                }`}
+              >{label}</button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
