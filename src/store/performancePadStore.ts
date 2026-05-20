@@ -12,6 +12,8 @@
 
 import { create } from "zustand";
 import { gridMs, stepCountFor, stepNotesToEvents, type StepNote } from "./performancePadStep";
+import { type FxMode } from "../audio/ChaosFxBus";
+import { type BeatFxId } from "../audio/BeatFx";
 
 export type YAxisParam = "cutoff" | "resonance" | "envMod" | "decay" | "distortion" | "volume" | "reverb" | "delay" | "drive" | "pitch";
 
@@ -217,6 +219,13 @@ export interface PadEvent {
   velocity: number;     // 0-1 (used on "down")
 }
 
+export type FxEvent =
+  | { t: number; kind: "xy"; mode: FxMode; x: number; y: number }
+  | { t: number; kind: "beat-down" | "beat-up"; fxId: BeatFxId };
+
+/** Distributive Omit — preserves discriminated-union variants. */
+type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
+
 // ── localStorage persistence for custom chord sets ─────────────────────────
 const LS_KEY = "eg_custom_chord_sets";
 function loadCustomChordSets(): ChordSet[] {
@@ -249,6 +258,7 @@ interface PerformancePadState {
 
   // Recording
   events: PadEvent[];
+  fxEvents: FxEvent[];   // FX automation layer — runs in parallel with `events`
   isArmed: boolean;         // REC pressed, waiting for first note to actually start
   isRecording: boolean;
   isStepRecording: boolean; // Step-record mode — each press places a note at the current step and advances
@@ -297,6 +307,12 @@ interface PerformancePadState {
   /** Clear the step before the cursor and rewind onto it; no-op at step 0. */
   undoLastStep: () => void;
   appendEvent: (ev: Omit<PadEvent, "t">) => void;
+  /** Append an FX event while live recording; no-op otherwise. Stamps t. */
+  appendFxEvent: (ev: DistributiveOmit<FxEvent, "t">) => void;
+  /** Empty `events` only (CLR NOTES). */
+  clearEvents: () => void;
+  /** Empty `fxEvents` only (CLR FX). */
+  clearFxEvents: () => void;
   setLoopBars: (n: 0 | 1 | 2 | 4 | 8) => void;
   setQuantize: (q: "off" | "1/4" | "1/8" | "1/16" | "1/32") => void;
 
@@ -321,6 +337,7 @@ export const usePerformancePadStore = create<PerformancePadState>((set, get) => 
   customChordSets: loadCustomChordSets(),
 
   events: [],
+  fxEvents: [],
   isArmed: false,
   isRecording: false,
   isStepRecording: false,
@@ -495,7 +512,7 @@ export const usePerformancePadStore = create<PerformancePadState>((set, get) => 
     const s = get();
     if (s.isLooping) s.stopLoop();
     set({
-      events: [], loopDuration: 0, isRecording: false, isArmed: false,
+      events: [], fxEvents: [], loopDuration: 0, isRecording: false, isArmed: false,
       isStepRecording: false, stepNotes: [], stepCursor: 0,
     });
   },
@@ -561,6 +578,17 @@ export const usePerformancePadStore = create<PerformancePadState>((set, get) => 
     const t = performance.now() - s.recordStart;
     set((state) => ({ events: [...state.events, { ...ev, t }] }));
   },
+
+  appendFxEvent: (ev) => {
+    const s = get();
+    if (!s.isRecording) return;
+    const t = performance.now() - s.recordStart;
+    set((state) => ({ fxEvents: [...state.fxEvents, { ...ev, t } as FxEvent] }));
+  },
+
+  clearEvents: () => set({ events: [] }),
+
+  clearFxEvents: () => set({ fxEvents: [] }),
 
   setLoopBars: (n) => set({ loopBars: n }),
   setQuantize: (q) => set({ quantize: q }),

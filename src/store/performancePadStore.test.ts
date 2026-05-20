@@ -88,3 +88,56 @@ describe("performancePadStore — startStepRecording pattern preservation", () =
     expect(store().stepNotes.every((s) => s === null)).toBe(true);
   });
 });
+
+describe("performancePadStore — fxEvents layer", () => {
+  const store = () => usePerformancePadStore.getState();
+
+  beforeEach(() => {
+    store().clearRecording();
+    store().armRecording();
+    // Stamp recordStart by faking a first event — appendEvent does this for armed state.
+    store().appendEvent({ type: "down", pointerId: 1, x: 0.5, y: 0.5, velocity: 0.8 });
+  });
+
+  it("starts with an empty fxEvents array", () => {
+    store().clearRecording();
+    expect(store().fxEvents).toEqual([]);
+  });
+
+  it("appendFxEvent stamps t and appends while recording", () => {
+    store().appendFxEvent({ kind: "xy", mode: "FILTER", x: 0.3, y: 0.6 });
+    const evs = store().fxEvents;
+    expect(evs).toHaveLength(1);
+    expect(evs[0]!.kind).toBe("xy");
+    expect((evs[0] as { mode: string }).mode).toBe("FILTER");
+    expect(evs[0]!.t).toBeGreaterThanOrEqual(0);
+  });
+
+  it("appendFxEvent is a no-op outside live recording", () => {
+    store().stopRecording(120);
+    store().appendFxEvent({ kind: "beat-down", fxId: "throw" });
+    expect(store().fxEvents).toHaveLength(0);
+  });
+
+  it("clearEvents empties only notes; fxEvents stay", () => {
+    store().appendFxEvent({ kind: "xy", mode: "FILTER", x: 0.3, y: 0.6 });
+    store().clearEvents();
+    expect(store().events).toEqual([]);
+    expect(store().fxEvents).toHaveLength(1);
+  });
+
+  it("clearFxEvents empties only fxEvents; notes stay", () => {
+    store().appendFxEvent({ kind: "xy", mode: "FILTER", x: 0.3, y: 0.6 });
+    expect(store().events.length).toBeGreaterThan(0);
+    store().clearFxEvents();
+    expect(store().fxEvents).toEqual([]);
+    expect(store().events.length).toBeGreaterThan(0);
+  });
+
+  it("clearRecording wipes both notes and fxEvents", () => {
+    store().appendFxEvent({ kind: "xy", mode: "FILTER", x: 0.3, y: 0.6 });
+    store().clearRecording();
+    expect(store().events).toEqual([]);
+    expect(store().fxEvents).toEqual([]);
+  });
+});
