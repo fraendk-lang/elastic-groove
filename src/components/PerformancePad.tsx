@@ -24,8 +24,8 @@ import { sendFxManager } from "../audio/SendFx";
 import { ArpScheduler } from "../audio/ArpScheduler";
 import { DEFAULT_ARP_SETTINGS } from "../audio/Arpeggiator";
 import { getMelodyEngineFxChain } from "../audio/MelodyLayerFx";
-import { type FxMode } from "../audio/ChaosFxBus";
-import { type BeatFxId } from "../audio/BeatFx";
+import { chaosFxBus, type FxMode } from "../audio/ChaosFxBus";
+import { beatFxManager, type BeatFxId } from "../audio/BeatFx";
 
 /** Beat-FX set exposed by the embedded ChaosPad — driven by the master beatFxManager. */
 const CHAOS_BEAT_FX: ReadonlyArray<{ id: BeatFxId; label: string }> = [
@@ -113,9 +113,9 @@ const _padVolumeByTarget: Record<string, number> = {};
 export function PerformancePad({ isOpen, onClose }: Props) {
   const {
     target, mode, chordSetIndex, yParam, scaleOctaves, scaleLowestOct, gridSnap, trailEnabled, chordFollow, gridRows,
-    events, isArmed, isRecording, isStepRecording, stepNotes, stepCursor, stepGridMs, isLooping, loopDuration, loopBars, quantize,
+    events, fxEvents, isArmed, isRecording, isStepRecording, stepNotes, stepCursor, stepGridMs, isLooping, loopDuration, loopBars, quantize,
     setTarget, setMode, setChordSetIndex, setYParam, setScaleOctaves, setScaleLowestOct, setGridSnap, setTrailEnabled, setChordFollow, setGridRows,
-    armRecording, startStepRecording, stopRecording, clearRecording, placeStepNote, setStepCursor, clearStepAt, skipStep, undoLastStep, appendEvent, setLoopBars, setQuantize,
+    armRecording, startStepRecording, stopRecording, clearRecording, placeStepNote, setStepCursor, clearStepAt, skipStep, undoLastStep, appendEvent, appendFxEvent, setLoopBars, setQuantize,
     startLoop, stopLoop,
     customChordSets, setChordIntervals, resetChordCell,
   } = usePerformancePadStore();
@@ -167,8 +167,8 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   const [chaosMode, setChaosMode] = useState<FxMode>("FILTER");
   const [chaosCollapsed, setChaosCollapsed] = useState(false);
   const [activeBeatFx, setActiveBeatFx] = useState<ReadonlySet<string>>(new Set());
-  // setActiveBeatFx is wired in Task 6 when Beat-FX callbacks attach to beatFxManager.
-  void setActiveBeatFx;
+  // fxEvents is wired in Task 8 for loop playback recording.
+  void fxEvents;
   const arpSchedulerRef = useRef<ArpScheduler | null>(null);
   if (arpSchedulerRef.current === null) {
     arpSchedulerRef.current = new ArpScheduler();
@@ -2044,12 +2044,38 @@ export function PerformancePad({ isOpen, onClose }: Props) {
               compact
               mode={chaosMode}
               onModeChange={setChaosMode}
-              onXYDown={() => { /* wired in Task 6 */ }}
-              onXYMove={() => { /* wired in Task 6 */ }}
-              onXYUp={() => { /* wired in Task 6 */ }}
+              onXYDown={(mode, x, y) => {
+                const b = useDrumStore.getState().bpm;
+                chaosFxBus.activate("melody", mode, x, y, b);
+                appendFxEvent({ kind: "xy", mode, x, y });
+              }}
+              onXYMove={(mode, x, y) => {
+                const b = useDrumStore.getState().bpm;
+                chaosFxBus.setXY("melody", mode, x, y, b);
+                appendFxEvent({ kind: "xy", mode, x, y });
+              }}
+              onXYUp={(mode) => {
+                chaosFxBus.release("melody", mode);
+              }}
               beatFx={CHAOS_BEAT_FX}
-              onBeatFxDown={() => { /* wired in Task 6 */ }}
-              onBeatFxUp={() => { /* wired in Task 6 */ }}
+              onBeatFxDown={(id) => {
+                beatFxManager.startEffect(id as BeatFxId);
+                appendFxEvent({ kind: "beat-down", fxId: id as BeatFxId });
+                setActiveBeatFx((prev) => {
+                  const next = new Set(prev);
+                  next.add(id);
+                  return next;
+                });
+              }}
+              onBeatFxUp={(id) => {
+                beatFxManager.stopEffect(id as BeatFxId);
+                appendFxEvent({ kind: "beat-up", fxId: id as BeatFxId });
+                setActiveBeatFx((prev) => {
+                  const next = new Set(prev);
+                  next.delete(id);
+                  return next;
+                });
+              }}
               activeBeatFx={activeBeatFx}
             />
           </div>
