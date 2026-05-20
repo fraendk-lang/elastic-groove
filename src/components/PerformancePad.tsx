@@ -794,7 +794,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   // hanging notes. "move" events still use setTimeout (gestural, not timing-
   // critical).
   useEffect(() => {
-    if (!isLooping || events.length === 0) return;
+    if (!isLooping || (events.length === 0 && fxEvents.length === 0)) return;
     const ctx = audioEngine.getAudioContext();
     if (!ctx) return;
 
@@ -987,6 +987,10 @@ export function PerformancePad({ isOpen, onClose }: Props) {
       if (arpSchedulerRef.current?.isRunning) {
         arpSchedulerRef.current.stop();
       }
+      // Release any beat-FX still active from FX automation — otherwise a
+      // beat-down whose matching beat-up didn't fire would hang the effect.
+      const activeFx = beatFxManager.activeEffect;
+      if (activeFx) beatFxManager.stopEffect(activeFx);
     };
   }, [isLooping, events, fxEvents, loopDuration, xToMidi, fireVoice, modulateVoice, repitchVoice, gridSnap, target]);
 
@@ -2084,20 +2088,14 @@ export function PerformancePad({ isOpen, onClose }: Props) {
               onBeatFxDown={(id) => {
                 beatFxManager.startEffect(id as BeatFxId);
                 appendFxEvent({ kind: "beat-down", fxId: id as BeatFxId });
-                setActiveBeatFx((prev) => {
-                  const next = new Set(prev);
-                  next.add(id);
-                  return next;
-                });
+                const active = beatFxManager.activeEffect;
+                setActiveBeatFx(new Set(active ? [active] : []));
               }}
               onBeatFxUp={(id) => {
                 beatFxManager.stopEffect(id as BeatFxId);
                 appendFxEvent({ kind: "beat-up", fxId: id as BeatFxId });
-                setActiveBeatFx((prev) => {
-                  const next = new Set(prev);
-                  next.delete(id);
-                  return next;
-                });
+                const active = beatFxManager.activeEffect;
+                setActiveBeatFx(new Set(active ? [active] : []));
               }}
               activeBeatFx={activeBeatFx}
             />

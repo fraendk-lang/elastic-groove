@@ -597,7 +597,7 @@ export const usePerformancePadStore = create<PerformancePadState>((set, get) => 
 
   startLoop: () => {
     const s = get();
-    if (s.events.length === 0 || s.isLooping) return;
+    if ((s.events.length === 0 && s.fxEvents.length === 0) || s.isLooping) return;
     set({ isLooping: true, playbackStartTime: performance.now() });
     // Playback engine lives in PerformancePad component (needs access to engines)
   },
