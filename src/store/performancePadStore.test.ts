@@ -140,4 +140,14 @@ describe("performancePadStore — fxEvents layer", () => {
     expect(store().events).toEqual([]);
     expect(store().fxEvents).toEqual([]);
   });
+
+  it("appendFxEvent starts recording when armed (mirrors appendEvent)", () => {
+    store().clearRecording();
+    store().armRecording();
+    expect(store().isRecording).toBe(false);
+    store().appendFxEvent({ kind: "xy", mode: "FILTER", x: 0.5, y: 0.5 });
+    expect(store().isRecording).toBe(true);
+    expect(store().fxEvents).toHaveLength(1);
+    expect(store().fxEvents[0]!.t).toBe(0);
+  });
 });

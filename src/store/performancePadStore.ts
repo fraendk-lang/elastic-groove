@@ -581,6 +581,17 @@ export const usePerformancePadStore = create<PerformancePadState>((set, get) => 
 
   appendFxEvent: (ev) => {
     const s = get();
+    // First event while armed — start recording NOW (same as appendEvent)
+    if (s.isArmed) {
+      const startTime = performance.now();
+      set({
+        isArmed: false,
+        isRecording: true,
+        recordStart: startTime,
+        fxEvents: [{ ...ev, t: 0 } as FxEvent],
+      });
+      return;
+    }
     if (!s.isRecording) return;
     const t = performance.now() - s.recordStart;
     set((state) => ({ fxEvents: [...state.fxEvents, { ...ev, t } as FxEvent] }));
