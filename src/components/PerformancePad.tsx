@@ -12,6 +12,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { usePerformancePadStore, CHORD_SETS, type YAxisParam, type PadTarget, type PadMode } from "../store/performancePadStore";
 import { PerformancePadStepLane } from "./PerformancePadStepLane";
+import { ChaosPad } from "./ChaosPad";
 import { useMelodyStore, MELODY_PRESETS } from "../store/melodyStore";
 import { useBassStore, BASS_PRESETS } from "../store/bassStore";
 import { useDrumStore, getDrumTransportStartTime } from "../store/drumStore";
@@ -23,6 +24,18 @@ import { sendFxManager } from "../audio/SendFx";
 import { ArpScheduler } from "../audio/ArpScheduler";
 import { DEFAULT_ARP_SETTINGS } from "../audio/Arpeggiator";
 import { getMelodyEngineFxChain } from "../audio/MelodyLayerFx";
+import { type FxMode } from "../audio/ChaosFxBus";
+import { type BeatFxId } from "../audio/BeatFx";
+
+/** Beat-FX set exposed by the embedded ChaosPad — driven by the master beatFxManager. */
+const CHAOS_BEAT_FX: ReadonlyArray<{ id: BeatFxId; label: string }> = [
+  { id: "throw",   label: "THROW" },
+  { id: "echo",    label: "ECHO" },
+  { id: "choke",   label: "CHOKE" },
+  { id: "stutter", label: "STUTT" },
+  { id: "roll",    label: "ROLL" },
+  { id: "noise",   label: "NOISE" },
+];
 
 interface Props {
   isOpen: boolean;
@@ -151,6 +164,11 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   const [arpRate, setArpRate] = useState<"1/4" | "1/8" | "1/16">("1/8");
   const [arpOctaves, setArpOctaves] = useState<1 | 2>(1);
   const [arpLatch, setArpLatch] = useState(false);
+  const [chaosMode, setChaosMode] = useState<FxMode>("FILTER");
+  const [chaosCollapsed, setChaosCollapsed] = useState(false);
+  const [activeBeatFx, setActiveBeatFx] = useState<ReadonlySet<string>>(new Set());
+  // setActiveBeatFx is wired in Task 6 when Beat-FX callbacks attach to beatFxManager.
+  void setActiveBeatFx;
   const arpSchedulerRef = useRef<ArpScheduler | null>(null);
   if (arpSchedulerRef.current === null) {
     arpSchedulerRef.current = new ArpScheduler();
@@ -2014,6 +2032,36 @@ export function PerformancePad({ isOpen, onClose }: Props) {
           <span className="text-[7px] text-orange-400/80 font-mono">{padVolume}%</span>
         </div>
       </div>
+
+        {target === "melody" && !chaosCollapsed && (
+          <div className="px-6 pb-2" style={{ flexBasis: "35%", flexShrink: 0 }}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[8px] text-white/40 tracking-[0.15em] uppercase">Chaos · Melody</span>
+              <button onClick={() => setChaosCollapsed(true)}
+                className="text-[9px] text-white/40 hover:text-white/80 px-2 h-5 rounded bg-white/5">MIN</button>
+            </div>
+            <ChaosPad
+              compact
+              mode={chaosMode}
+              onModeChange={setChaosMode}
+              onXYDown={() => { /* wired in Task 6 */ }}
+              onXYMove={() => { /* wired in Task 6 */ }}
+              onXYUp={() => { /* wired in Task 6 */ }}
+              beatFx={CHAOS_BEAT_FX}
+              onBeatFxDown={() => { /* wired in Task 6 */ }}
+              onBeatFxUp={() => { /* wired in Task 6 */ }}
+              activeBeatFx={activeBeatFx}
+            />
+          </div>
+        )}
+        {target === "melody" && chaosCollapsed && (
+          <div className="px-6 pb-1">
+            <button onClick={() => setChaosCollapsed(false)}
+              className="text-[9px] text-white/50 hover:text-white/90 px-3 h-5 rounded bg-white/10">
+              + CHAOS
+            </button>
+          </div>
+        )}
 
       {(isStepRecording || stepNotes.some((n) => n !== null)) && (
         <PerformancePadStepLane
