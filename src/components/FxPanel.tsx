@@ -5,7 +5,7 @@
  * Completely rewritten with musical parameter mapping, BPM sync, and proper audio algorithms.
  */
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { audioEngine } from "../audio/AudioEngine";
 import { useDrumStore } from "../store/drumStore";
 import { motionRecorder, type MotionRecording } from "../audio/MotionRecorder";
@@ -275,6 +275,15 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
 
   const beatFxListRef = useRef(createBeatFxList());
   const savedSendsRef = useRef<{ channels: number[]; reverb: number[]; delay: number[] } | null>(null);
+
+  const chaosBeatFx = useMemo(
+    () => beatFxListRef.current.map((b, i) => ({ id: String(i), label: b.label })),
+    []
+  );
+  const chaosActiveBeatFx = useMemo(
+    () => new Set(Array.from(activeBeatFx).map(String)),
+    [activeBeatFx]
+  );
 
   const applyPadState = useCallback((x: number, y: number, latch = false) => {
     setPadX(x);
@@ -759,7 +768,6 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
               as opaque numeric-index ids; ChaosPad only needs id+label. */}
           <div className="flex-1 min-h-0">
             <ChaosPad
-              target={fxTarget}
               mode={activeMode}
               onModeChange={(m) => {
                 if (holdLocked) releaseHold();
@@ -770,10 +778,18 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
               onXYDown={handleChaosDown}
               onXYMove={handleChaosMove}
               onXYUp={handleChaosUp}
-              beatFx={beatFxListRef.current.map((b, i) => ({ id: String(i), label: b.label }))}
-              onBeatFxDown={(id) => handleBeatFxDown(Number(id))}
-              onBeatFxUp={(id) => handleBeatFxUp(Number(id))}
-              activeBeatFx={new Set(Array.from(activeBeatFx).map((idx) => String(idx)))}
+              beatFx={chaosBeatFx}
+              onBeatFxDown={(id) => {
+                const i = Number(id);
+                if (!Number.isInteger(i) || !beatFxListRef.current[i]) return;
+                handleBeatFxDown(i);
+              }}
+              onBeatFxUp={(id) => {
+                const i = Number(id);
+                if (!Number.isInteger(i) || !beatFxListRef.current[i]) return;
+                handleBeatFxUp(i);
+              }}
+              activeBeatFx={chaosActiveBeatFx}
               padOverlay={padOverlay}
             />
           </div>

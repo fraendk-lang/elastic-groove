@@ -9,13 +9,10 @@
 import { useRef, useState, useCallback } from "react";
 import type React from "react";
 import {
-  type FxMode, type FxTarget, FX_MODES, MODE_CONFIG,
+  type FxMode, FX_MODES, MODE_CONFIG,
 } from "../audio/ChaosFxBus";
 
 interface ChaosPadProps {
-  /** Routing target — part of the component's public contract, makes the
-   *  host's wiring intent explicit (e.g. `target="melody"` is self-documenting). */
-  target: FxTarget;
   /** Active FX mode for the XY canvas. Host owns the state. */
   mode: FxMode;
   onModeChange: (mode: FxMode) => void;
@@ -43,7 +40,7 @@ interface ChaosPadProps {
 }
 
 export function ChaosPad({
-  target: _target, mode, onModeChange, onXYMove, onXYDown, onXYUp,
+  mode, onModeChange, onXYMove, onXYDown, onXYUp,
   beatFx, onBeatFxDown, onBeatFxUp, compact = false,
   activeBeatFx,
   padOverlay,
