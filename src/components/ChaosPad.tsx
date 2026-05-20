@@ -7,7 +7,7 @@
  */
 import { useRef, useState, useCallback } from "react";
 import {
-  type FxMode, type FxTarget, FX_MODES, MODE_CONFIG, FX_TARGETS,
+  type FxMode, type FxTarget, FX_MODES, MODE_CONFIG,
 } from "../audio/ChaosFxBus";
 import { type BeatFxId } from "../audio/BeatFx";
 
@@ -25,7 +25,8 @@ const BEAT_FX_LABELS: Record<BeatFxId, string> = {
 };
 
 interface ChaosPadProps {
-  /** Routing target — read-only when `lockedTarget` is true. */
+  /** Routing target — part of the component's public contract, makes the
+   *  host's wiring intent explicit (e.g. `target="melody"` is self-documenting). */
   target: FxTarget;
   /** Active FX mode for the XY canvas. Host owns the state. */
   mode: FxMode;
@@ -40,15 +41,13 @@ interface ChaosPadProps {
   onBeatFxUp: (id: BeatFxId) => void;
   /** Compact embedded variant (no target selector, tighter spacing). */
   compact?: boolean;
-  /** Hide the target selector — target stays as passed in. */
-  lockedTarget?: boolean;
   /** Active Beat-FX set, for visual feedback. */
   activeBeatFx?: ReadonlySet<BeatFxId>;
 }
 
 export function ChaosPad({
-  target, mode, onModeChange, onXYMove, onXYDown, onXYUp,
-  onBeatFxDown, onBeatFxUp, compact = false, lockedTarget = false,
+  target: _target, mode, onModeChange, onXYMove, onXYDown, onXYUp,
+  onBeatFxDown, onBeatFxUp, compact = false,
   activeBeatFx,
 }: ChaosPadProps) {
   const padRef = useRef<HTMLDivElement>(null);
@@ -86,20 +85,6 @@ export function ChaosPad({
 
   return (
     <div className={`flex flex-col ${compact ? "gap-1.5" : "gap-2"}`}>
-      {!lockedTarget && (
-        <div className="flex items-center gap-1 px-2">
-          <span className="text-[9px] text-white/40 tracking-wider">TARGET</span>
-          {FX_TARGETS.map((t) => (
-            <button key={t.id}
-              onClick={() => { /* host wires target separately */ }}
-              className={`px-2 h-5 text-[9px] font-bold rounded ${
-                t.id === target ? "bg-white/15 text-white/90" : "text-white/30 hover:text-white/60"
-              }`}
-            >{t.label}</button>
-          ))}
-        </div>
-      )}
-
       <div className="flex items-center gap-1 px-2">
         <span className="text-[9px] text-white/40 tracking-wider">MODE</span>
         {FX_MODES.map((m) => (
