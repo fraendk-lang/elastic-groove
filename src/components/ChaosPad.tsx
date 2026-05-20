@@ -7,6 +7,7 @@
  * is done by the host via the callback props.
  */
 import { useRef, useState, useCallback } from "react";
+import type React from "react";
 import {
   type FxMode, type FxTarget, FX_MODES, MODE_CONFIG,
 } from "../audio/ChaosFxBus";
@@ -18,9 +19,11 @@ interface ChaosPadProps {
   /** Active FX mode for the XY canvas. Host owns the state. */
   mode: FxMode;
   onModeChange: (mode: FxMode) => void;
-  /** Continuous XY motion while a finger is on the canvas. */
+  /** Continuous XY motion while a finger is on the canvas.
+   *  XY uses Kaoss convention: x=0 left, x=1 right, y=0 bottom, y=1 top. */
   onXYMove: (mode: FxMode, x: number, y: number) => void;
-  /** XY canvas press/release — host activates / releases the FX. */
+  /** XY canvas press/release — host activates / releases the FX.
+   *  XY uses Kaoss convention: x=0 left, x=1 right, y=0 bottom, y=1 top. */
   onXYDown: (mode: FxMode, x: number, y: number) => void;
   onXYUp: (mode: FxMode) => void;
   /** List of Beat-FX hold-buttons to render. Empty array = no beat-FX row. */
@@ -31,12 +34,21 @@ interface ChaosPadProps {
   compact?: boolean;
   /** Active Beat-FX set, for visual feedback. */
   activeBeatFx?: ReadonlySet<string>;
+  /** Extra JSX rendered absolutely-positioned inside the XY canvas (e.g. mode-specific gridlines, zone labels). */
+  padOverlay?: React.ReactNode;
+  /** Render the small MODE-buttons row above the canvas (default true). FxPanel sets this false because it has its own richer mode tiles in the header. */
+  showModeButtons?: boolean;
+  /** Render the built-in cursor dot inside the canvas (default true). Hosts that draw their own richer dot via padOverlay should set this false. */
+  showDot?: boolean;
 }
 
 export function ChaosPad({
   target: _target, mode, onModeChange, onXYMove, onXYDown, onXYUp,
   beatFx, onBeatFxDown, onBeatFxUp, compact = false,
   activeBeatFx,
+  padOverlay,
+  showModeButtons = true,
+  showDot = true,
 }: ChaosPadProps) {
   const padRef = useRef<HTMLDivElement>(null);
   const [touchXY, setTouchXY] = useState<{ x: number; y: number } | null>(null);
@@ -46,7 +58,9 @@ export function ChaosPad({
     if (!r) return { x: 0, y: 0 };
     return {
       x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
-      y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)),
+      // Kaoss convention: y=0 at the bottom of the canvas, y=1 at the top.
+      // Matches musical intuition (up = brighter / louder / faster).
+      y: Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height)),
     };
   }, []);
 
@@ -73,19 +87,21 @@ export function ChaosPad({
 
   return (
     <div className={`flex flex-col ${compact ? "gap-1.5" : "gap-2"}`}>
-      <div className="flex items-center gap-1 px-2">
-        <span className="text-[9px] text-white/40 tracking-wider">MODE</span>
-        {FX_MODES.map((m) => (
-          <button key={m} onClick={() => onModeChange(m)}
-            className={`px-2 h-6 text-[9px] font-bold rounded transition-colors ${
-              m === mode
-                ? "bg-white/15"
-                : "text-white/30 hover:text-white/60"
-            }`}
-            style={{ color: m === mode ? MODE_CONFIG[m].color : undefined }}
-          >{m}</button>
-        ))}
-      </div>
+      {showModeButtons && (
+        <div className="flex items-center gap-1 px-2">
+          <span className="text-[9px] text-white/40 tracking-wider">MODE</span>
+          {FX_MODES.map((m) => (
+            <button key={m} onClick={() => onModeChange(m)}
+              className={`px-2 h-6 text-[9px] font-bold rounded transition-colors ${
+                m === mode
+                  ? "bg-white/15"
+                  : "text-white/30 hover:text-white/60"
+              }`}
+              style={{ color: m === mode ? MODE_CONFIG[m].color : undefined }}
+            >{m}</button>
+          ))}
+        </div>
+      )}
 
       <div
         ref={padRef}
@@ -104,12 +120,15 @@ export function ChaosPad({
         <div className="absolute top-1 left-2 text-[8px] tracking-wider font-bold" style={{ color: modeColor }}>
           {MODE_CONFIG[mode].xLabel} ◂▸ · {MODE_CONFIG[mode].yLabel} ▴▾
         </div>
-        {touchXY && (
+        {padOverlay}
+        {showDot && touchXY && (
           <div
             className="absolute w-3 h-3 rounded-full pointer-events-none"
             style={{
               left: `calc(${touchXY.x * 100}% - 6px)`,
-              top: `calc(${touchXY.y * 100}% - 6px)`,
+              // touchXY.y is Kaoss-convention (0=bottom, 1=top), so invert
+              // for the CSS top offset (which counts from the top of the box).
+              top: `calc(${(1 - touchXY.y) * 100}% - 6px)`,
               background: modeColor,
               boxShadow: `0 0 12px ${modeColor}`,
             }}

@@ -267,6 +267,7 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
   const [holdLocked, setHoldLocked] = useState(false);
   const [padX, setPadX] = useState(0.5);
   const [padY, setPadY] = useState(0.5);
+  const [padActive, setPadActive] = useState(false);
   const [activeBeatFx, setActiveBeatFx] = useState<Set<number>>(new Set());
   const [isRecording, setIsRecording] = useState(false);
   const [isPlayingMotion, setIsPlayingMotion] = useState(false);
@@ -297,21 +298,20 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
     setHoldMode(false);
     setPadX(0.5);
     setPadY(0.5);
+    setPadActive(false);
   }, [activeBeatFx, activeMode, bpm, fxTarget]);
 
   // ─── XY Pad Handlers (ChaosPad adapters) ──────────────
   //
-  // ChaosPad reports XY in raw canvas coordinates (y=0 at top, y=1 at bottom).
-  // FxPanel's parameter mapping was originally written with the Kaoss
-  // convention (y=0 at bottom, y=1 at top), so we invert here once.
-  // The `padX` / `padY` state below is in FxPanel-space (y inverted from raw).
+  // ChaosPad reports XY in Kaoss convention (y=0 at bottom, y=1 at top),
+  // matching the audio math in chaosFxBus.setXY. Adapter passes XY straight
+  // through. `padX` / `padY` state is in the same Kaoss-convention space.
 
   const handleChaosDown = useCallback(
-    (mode: FxMode, rawX: number, rawY: number) => {
-      const x = rawX;
-      const y = 1 - rawY;
+    (mode: FxMode, x: number, y: number) => {
       setPadX(x);
       setPadY(y);
+      setPadActive(true);
       // Auto-open channel sends for REVERB/DELAY modes so the Kaoss Pad
       // actually routes signal through the send buses (they start at 0 by default).
       if ((mode === "REVERB" || mode === "DELAY") && savedSendsRef.current === null) {
@@ -333,9 +333,7 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
   );
 
   const handleChaosMove = useCallback(
-    (mode: FxMode, rawX: number, rawY: number) => {
-      const x = rawX;
-      const y = 1 - rawY;
+    (mode: FxMode, x: number, y: number) => {
       setPadX(x);
       setPadY(y);
       chaosFxBus.setXY(fxTarget, mode, x, y, bpm);
@@ -348,6 +346,7 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
 
   const handleChaosUp = useCallback(
     (mode: FxMode) => {
+      setPadActive(false);
       if (holdMode) {
         setHoldLocked(true);
       } else {
@@ -428,6 +427,129 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
   const modeConfig = MODE_CONFIG[activeMode];
   const modeColor = modeConfig.color;
   const musicalValue = getMusicalValue(activeMode, padX, padY, bpm);
+
+  // Rich decorations layered inside the shared ChaosPad's XY canvas.
+  // All elements are absolutely positioned with `pointer-events-none` so
+  // ChaosPad keeps full ownership of pointer input.
+  // Coordinate convention: padX/padY are Kaoss-convention (y=0 bottom, y=1 top),
+  // so vertical positions use `${(1 - padY) * 100}%` for CSS `top` (which counts
+  // downward from the top edge).
+  const padOverlay = (
+    <>
+      {/* Background grid + mode-specific zones */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
+        {/* 8×8 fine grid */}
+        {[0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875].map((pos) => (
+          <line key={`v-${pos}`} x1={`${pos * 100}%`} y1="0" x2={`${pos * 100}%`} y2="100%" stroke={modeColor} strokeOpacity="0.06" strokeWidth="1" />
+        ))}
+        {[0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875].map((pos) => (
+          <line key={`h-${pos}`} x1="0" y1={`${pos * 100}%`} x2="100%" y2={`${pos * 100}%`} stroke={modeColor} strokeOpacity="0.06" strokeWidth="1" />
+        ))}
+        {/* Center dashed crosshair */}
+        <line x1="50%" y1="0" x2="50%" y2="100%" stroke={modeColor} strokeOpacity="0.12" strokeWidth="1" strokeDasharray="6 4" />
+        <line x1="0" y1="50%" x2="100%" y2="50%" stroke={modeColor} strokeOpacity="0.12" strokeWidth="1" strokeDasharray="6 4" />
+
+        {/* Mode-specific zone overlays */}
+        {activeMode === "FILTER" && <>
+          <line x1="50%" y1="0" x2="50%" y2="100%" stroke={modeColor} strokeOpacity="0.3" strokeWidth="2" />
+          <text x="20%" y="95%" fill={modeColor} fillOpacity="0.2" fontSize="11" fontWeight="bold" textAnchor="middle">LP</text>
+          <text x="80%" y="95%" fill={modeColor} fillOpacity="0.2" fontSize="11" fontWeight="bold" textAnchor="middle">HP</text>
+        </>}
+        {activeMode === "DELAY" && <>
+          {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+            <line key={`d-${i}`} x1={`${(i / 8) * 100}%`} y1="0" x2={`${(i / 8) * 100}%`} y2="100%" stroke={modeColor} strokeOpacity="0.12" strokeWidth="1" strokeDasharray="3 5" />
+          ))}
+          {["1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4", "1/2"].map((label, i) => (
+            <text key={label} x={`${(i + 0.5) / 8 * 100}%`} y="97%" fill={modeColor} fillOpacity="0.15" fontSize="8" fontWeight="bold" textAnchor="middle">{label}</text>
+          ))}
+        </>}
+        {activeMode === "CRUSH" && <>
+          <line x1="40%" y1="0" x2="40%" y2="100%" stroke={modeColor} strokeOpacity="0.3" strokeWidth="2" />
+          <text x="20%" y="95%" fill={modeColor} fillOpacity="0.2" fontSize="10" fontWeight="bold" textAnchor="middle">TEL</text>
+          <text x="70%" y="95%" fill={modeColor} fillOpacity="0.2" fontSize="10" fontWeight="bold" textAnchor="middle">CRUSH</text>
+        </>}
+      </svg>
+
+      {/* Active crosshair lines through the current dot position */}
+      {(padActive || holdLocked) && (
+        <svg className="absolute inset-0 w-full h-full pointer-events-none">
+          <line x1={`${padX * 100}%`} y1="0" x2={`${padX * 100}%`} y2="100%" stroke={modeColor} strokeOpacity="0.3" strokeWidth="1" />
+          <line x1="0" y1={`${(1 - padY) * 100}%`} x2="100%" y2={`${(1 - padY) * 100}%`} stroke={modeColor} strokeOpacity="0.3" strokeWidth="1" />
+        </svg>
+      )}
+
+      {/* Outer glow halo (240px) */}
+      {padActive && (
+        <div className="absolute rounded-full -translate-x-1/2 -translate-y-1/2 pointer-events-none" style={{
+          left: `${padX * 100}%`, top: `${(1 - padY) * 100}%`,
+          width: "240px", height: "240px",
+          background: `radial-gradient(circle, ${modeColor}20 0%, ${modeColor}08 40%, transparent 70%)`,
+        }} />
+      )}
+
+      {/* Inner glow ring (80px) */}
+      {(padActive || holdLocked) && (
+        <div className="absolute rounded-full -translate-x-1/2 -translate-y-1/2 pointer-events-none" style={{
+          left: `${padX * 100}%`, top: `${(1 - padY) * 100}%`,
+          width: "80px", height: "80px",
+          background: `radial-gradient(circle, ${modeColor}35 0%, ${modeColor}15 50%, transparent 100%)`,
+        }} />
+      )}
+
+      {/* Main dot — sized/glowing by state */}
+      <div className="absolute rounded-full -translate-x-1/2 -translate-y-1/2 pointer-events-none" style={{
+        left: `${padX * 100}%`, top: `${(1 - padY) * 100}%`,
+        width: padActive ? "36px" : "20px", height: padActive ? "36px" : "20px",
+        backgroundColor: modeColor,
+        boxShadow: padActive
+          ? `0 0 30px ${modeColor}, 0 0 60px ${modeColor}90, 0 0 120px ${modeColor}40, inset 0 0 8px rgba(255,255,255,0.3)`
+          : holdLocked
+            ? `0 0 20px ${modeColor}80, 0 0 40px ${modeColor}40`
+            : `0 0 10px ${modeColor}50`,
+        opacity: padActive ? 1 : holdLocked ? 0.8 : 0.35,
+        transition: "width 0.1s, height 0.1s, opacity 0.15s",
+      }} />
+
+      {/* Bright center spot on the dot while active */}
+      {padActive && (
+        <div className="absolute rounded-full -translate-x-1/2 -translate-y-1/2 pointer-events-none" style={{
+          left: `${padX * 100}%`, top: `${(1 - padY) * 100}%`,
+          width: "12px", height: "12px",
+          backgroundColor: "white",
+          opacity: 0.6,
+          filter: "blur(2px)",
+        }} />
+      )}
+
+      {/* Idle hint */}
+      {!padActive && !holdLocked && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="text-[11px] font-bold tracking-[0.3em] uppercase" style={{ color: modeColor + "20" }}>
+            Touch to engage
+          </span>
+        </div>
+      )}
+
+      {/* HELD indicator (visible when latched but not actively touched) */}
+      {holdLocked && !padActive && (
+        <div className="absolute top-3 left-3 flex items-center gap-1.5 pointer-events-none">
+          <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: modeColor }} />
+          <span className="text-[9px] font-bold tracking-wider" style={{ color: modeColor }}>HELD</span>
+        </div>
+      )}
+
+      {/* Pulsing red recording border */}
+      {isRecording && (
+        <div
+          className="absolute inset-0 rounded-lg pointer-events-none animate-pulse"
+          style={{
+            border: "3px solid #ef4444",
+            boxShadow: "0 0 20px #ef444460, inset 0 0 20px #ef444415",
+          }}
+        />
+      )}
+    </>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#08080a]">
@@ -643,6 +765,8 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
                 if (holdLocked) releaseHold();
                 setActiveMode(m);
               }}
+              showModeButtons={false}
+              showDot={false}
               onXYDown={handleChaosDown}
               onXYMove={handleChaosMove}
               onXYUp={handleChaosUp}
@@ -650,6 +774,7 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
               onBeatFxDown={(id) => handleBeatFxDown(Number(id))}
               onBeatFxUp={(id) => handleBeatFxUp(Number(id))}
               activeBeatFx={new Set(Array.from(activeBeatFx).map((idx) => String(idx)))}
+              padOverlay={padOverlay}
             />
           </div>
         </div>
