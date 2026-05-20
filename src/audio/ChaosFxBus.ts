@@ -43,15 +43,9 @@ export interface ModeConfig {
   yLabel: string;
 }
 
-export interface MusicalValue {
-  /** Short human-readable summary, e.g. "LP 1234Hz" or "1/8". */
-  label: string;
-  /** Primary numeric parameter for the current mode (cutoff Hz, division index, etc.). */
-  value: number;
-  /** Secondary descriptor, e.g. "Q: 3.2" or "FB: 50%". */
-  description: string;
-  /** @deprecated Use `label` — kept for backwards compatibility with existing UI. */
-  text: string;
+interface MusicalValue {
+  text: string;        // Display text shown in the UI (e.g. "1/8 ↻", "550 Hz")
+  description: string; // Secondary text below `text`
 }
 
 // ─── Constants ───────────────────────────────────────────
@@ -115,14 +109,12 @@ export function getMusicalValue(mode: FxMode, x: number, y: number, _bpm: number
         const norm = 1 - x * 2;
         const freq = Math.round(80 * Math.pow(20000 / 80, 1 - norm));
         const q = Math.round((0.5 + y * 25) * 10) / 10;
-        const text = `LP ${freq}Hz`;
-        return { label: text, value: freq, description: `Q: ${q}`, text };
+        return { text: `LP ${freq}Hz`, description: `Q: ${q}` };
       } else {
         const norm = (x - 0.5) * 2;
         const freq = Math.round(20 * Math.pow(12000 / 20, norm));
         const q = Math.round((0.5 + y * 25) * 10) / 10;
-        const text = `HP ${freq}Hz`;
-        return { label: text, value: freq, description: `Q: ${q}`, text };
+        return { text: `HP ${freq}Hz`, description: `Q: ${q}` };
       }
     }
     case "DELAY": {
@@ -130,43 +122,35 @@ export function getMusicalValue(mode: FxMode, x: number, y: number, _bpm: number
       const divNames = ["1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4", "1/2"];
       const divIdx = Math.min(divisions.length - 1, Math.floor(x * divisions.length));
       const feedback = Math.round(Math.pow(y, 1.5) * 88);
-      const text = `${divNames[divIdx]}`;
-      return { label: text, value: divIdx, description: `FB: ${feedback}%`, text };
+      return { text: `${divNames[divIdx]}`, description: `FB: ${feedback}%` };
     }
     case "REVERB": {
       const damping = Math.round(16000 * Math.pow(500 / 16000, x));
       const level = Math.round(Math.pow(y, 0.8) * 120);
-      const text = `${damping}Hz`;
-      return { label: text, value: damping, description: `${level}%`, text };
+      return { text: `${damping}Hz`, description: `${level}%` };
     }
     case "FLANGER": {
       const rate = Math.round((0.05 * Math.pow(4 / 0.05, x)) * 100) / 100;
       const depth = Math.round(Math.min(1.0, y * 1.5) * 100);
       const hasFeedback = y > 0.3 ? "+" : "";
-      const text = `${rate}Hz${hasFeedback}`;
-      return { label: text, value: rate, description: `Depth: ${depth}%`, text };
+      return { text: `${rate}Hz${hasFeedback}`, description: `Depth: ${depth}%` };
     }
     case "CRUSH": {
-      const drive = Math.round(Math.pow(y, 1.3) * 100);
       if (x < 0.4) {
-        const text = "TEL";
-        return { label: text, value: drive, description: `Drive: ${drive}%`, text };
+        return { text: "TEL", description: `Drive: ${Math.round(Math.pow(y, 1.3) * 100)}%` };
       } else {
-        const text = "CRUSH";
-        return { label: text, value: drive, description: `Drive: ${drive}%`, text };
+        return { text: "CRUSH", description: `Drive: ${Math.round(Math.pow(y, 1.3) * 100)}%` };
       }
     }
     case "PHASER": {
       const rate = Math.round((0.05 * Math.pow(6 / 0.05, x)) * 100) / 100;
       const depth = Math.round(y * 100);
-      const text = `${rate}Hz`;
-      return { label: text, value: rate, description: `Depth: ${depth}%`, text };
+      return { text: `${rate}Hz`, description: `Depth: ${depth}%` };
     }
     case "CHORUS": {
       const rate  = Math.round((0.5 + x * 3.5) * 10) / 10;
       const width = Math.round(y * 100);
-      const text = `${rate}Hz`;
-      return { label: text, value: rate, description: `Width: ${width}%`, text };
+      return { text: `${rate}Hz`, description: `Width: ${width}%` };
     }
   }
 }
