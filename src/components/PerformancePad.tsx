@@ -115,7 +115,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
     target, mode, chordSetIndex, yParam, scaleOctaves, scaleLowestOct, gridSnap, trailEnabled, chordFollow, gridRows,
     events, fxEvents, isArmed, isRecording, isStepRecording, stepNotes, stepCursor, stepGridMs, isLooping, loopDuration, loopBars, quantize,
     setTarget, setMode, setChordSetIndex, setYParam, setScaleOctaves, setScaleLowestOct, setGridSnap, setTrailEnabled, setChordFollow, setGridRows,
-    armRecording, startStepRecording, stopRecording, clearRecording, placeStepNote, setStepCursor, clearStepAt, skipStep, undoLastStep, appendEvent, appendFxEvent, setLoopBars, setQuantize,
+    armRecording, startStepRecording, stopRecording, placeStepNote, setStepCursor, clearStepAt, skipStep, undoLastStep, appendEvent, appendFxEvent, clearEvents, clearFxEvents, setLoopBars, setQuantize,
     startLoop, stopLoop,
     customChordSets, setChordIntervals, resetChordCell,
   } = usePerformancePadStore();
@@ -1690,7 +1690,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
           >■ STOP</button>
         )}
 
-        {events.length > 0 && !isRecording && !isArmed && (
+        {(events.length > 0 || fxEvents.length > 0) && !isRecording && !isArmed && (
           <>
             {!isLooping ? (
               <button onClick={startLoop}
@@ -1705,11 +1705,18 @@ export function PerformancePad({ isOpen, onClose }: Props) {
               className="px-3 h-6 text-[9px] font-bold rounded bg-[var(--ed-accent-melody)]/15 text-[var(--ed-accent-melody)] hover:bg-[var(--ed-accent-melody)]/25"
               title="Konvertiert Aufnahme in MIDI-Noten und importiert in Piano Roll"
             >→ PIANO ROLL</button>
-            <button onClick={clearRecording}
-              className="px-2 h-6 text-[8px] font-bold rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70"
-            >CLR</button>
+            <button onClick={clearEvents}
+              disabled={events.length === 0}
+              className="px-2 h-6 text-[8px] font-bold rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Clear recorded notes (keeps FX automation)"
+            >CLR NOTES</button>
+            <button onClick={clearFxEvents}
+              disabled={fxEvents.length === 0}
+              className="px-2 h-6 text-[8px] font-bold rounded bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70 disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Clear recorded FX automation (keeps notes)"
+            >CLR FX</button>
             <span className="text-[8px] text-[var(--ed-text-muted)] font-mono">
-              {events.length} ev · {(loopDuration / 1000).toFixed(1)}s
+              {events.length} note ev · {fxEvents.length} fx ev · {(loopDuration / 1000).toFixed(1)}s
               {loopBars > 0 && <span className="text-[var(--ed-accent-blue)]/70"> · {loopBars}bar</span>}
               {quantize !== "off" && <span className="text-[var(--ed-accent-blue)]/70"> · Q={quantize}</span>}
             </span>
