@@ -1,8 +1,8 @@
 {
   "id": "/?source=pwa",
-  "name": "Elastic Groove",
+  "name": "Elastic Groove (Beta)",
   "short_name": "Elastic Groove",
-  "description": "Browser Groovebox — VA Synth + Samples + Elektron Sequencer",
+  "description": "Browser groovebox in beta — VA Synth, samples, Elektron-style sequencer. Actively in development.",
   "start_url": "/?source=pwa",
   "scope": "/",
   "lang": "en",

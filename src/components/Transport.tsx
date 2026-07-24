@@ -97,10 +97,16 @@ export function Transport({
     <header className="flex items-center h-11 px-3 border-b border-[var(--ed-border)]/70 bg-[var(--ed-bg-primary)] gap-1.5 relative z-20 overflow-x-auto overflow-y-hidden">
 
       {/* ── Brand ── */}
-      <span className="text-[10px] font-black tracking-[0.25em] text-[var(--ed-accent-orange)] mr-1.5 hidden lg:block">
+      <span className="text-[10px] font-black tracking-[0.25em] text-[var(--ed-accent-orange)] mr-1 hidden lg:block">
         ELASTIC GROOVE
       </span>
       <span className="text-[10px] font-black tracking-[0.25em] text-[var(--ed-accent-orange)] mr-1 lg:hidden">EG</span>
+      <span
+        className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded-full text-[8px] font-black tracking-[0.14em] uppercase bg-amber-500/12 text-amber-300 border border-amber-500/25 mr-0.5 shrink-0"
+        title="Beta — actively in development"
+      >
+        Beta
+      </span>
 
       <Sep />
 

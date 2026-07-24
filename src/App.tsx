@@ -35,6 +35,7 @@ const MelodyGenerator = lazy(() => import("./components/MelodyGenerator").then((
 import { BeatFxPanel } from "./components/BeatFxPanel";
 import { ShortcutOverlay } from "./components/ShortcutOverlay";
 import { OnboardingModal } from "./components/OnboardingModal";
+import { BetaBanner } from "./components/BetaBanner";
 import { PWAStatus } from "./components/PWAStatus";
 import { RecordingControls } from "./components/RecordingControls";
 import { recordingOrchestrator } from "./recording/RecordingOrchestrator";
@@ -605,6 +606,9 @@ export function App() {
           <div className="absolute inset-0 rounded-full border-2 border-[var(--ed-accent-orange)]/20 animate-ping" />
         </button>
         <span className="text-[10px] text-[var(--ed-text-muted)] tracking-wider">CLICK TO START</span>
+        <p className="text-[10px] text-amber-200/70 max-w-xs text-center px-4">
+          Beta preview — Elastic Groove is still in development.
+        </p>
         {audioError && (
           <div className="mt-4 px-4 py-2 bg-red-500/10 border border-red-500/30 rounded-lg max-w-sm text-center">
             <p className="text-[11px] text-red-400">{audioError}</p>
@@ -647,6 +651,7 @@ export function App() {
       )}
 
       <div data-rec-hide="transport">
+      <BetaBanner />
       <Transport
         onOpenBrowser={() => overlay.openOverlay("browser")}
         onOpenEuclidean={() => overlay.openOverlay("euclidean")}

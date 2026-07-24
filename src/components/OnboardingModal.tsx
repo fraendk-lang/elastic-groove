@@ -106,8 +106,13 @@ export function OnboardingModal({ onComplete }: OnboardingProps = {}) {
         {/* Header */}
         <div className="px-6 pt-6 pb-0">
           <div className="flex items-center justify-between mb-1">
-            <div className="text-[9px] font-black tracking-[0.25em] text-[var(--ed-accent-orange)] uppercase">
-              Welcome to Elastic Groove
+            <div className="flex items-center gap-2">
+              <div className="text-[9px] font-black tracking-[0.25em] text-[var(--ed-accent-orange)] uppercase">
+                Welcome to Elastic Groove
+              </div>
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[8px] font-black tracking-[0.12em] uppercase bg-amber-500/12 text-amber-300 border border-amber-500/25">
+                Beta
+              </span>
             </div>
             <button
               onClick={dismiss}
@@ -117,6 +122,9 @@ export function OnboardingModal({ onComplete }: OnboardingProps = {}) {
               ×
             </button>
           </div>
+          <p className="text-[10px] text-[var(--ed-text-muted)] mt-2">
+            Early preview — features are still evolving. Your feedback helps shape the next releases.
+          </p>
           {/* Progress dots */}
           <div className="flex gap-1.5 mt-2">
             {STEPS.map((_, i) => (
