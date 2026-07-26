@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { beatFxManager, type BeatFxId, type BeatFxParams } from "../audio/BeatFx";
 import { audioEngine } from "../audio/AudioEngine";
+import { useDrumStore } from "../store/drumStore";
 
 interface EffectDef {
   id: BeatFxId;
@@ -72,6 +73,11 @@ export function BeatFxPanel() {
   const [params, setParams] = useState<BeatFxParams>({ ...beatFxManager.params });
   const [collapsed, setCollapsed] = useState(false);
   const connected = useRef(false);
+  const bpm = useDrumStore((s) => s.bpm);
+
+  useEffect(() => {
+    beatFxManager.setContext({ target: "master", bpm });
+  }, [bpm]);
 
   useEffect(() => {
     if (connected.current) return;
@@ -85,6 +91,7 @@ export function BeatFxPanel() {
       beatFxManager.connect();
       connected.current = true;
     }
+    beatFxManager.setContext({ target: "master", bpm });
     setActive(id);
     beatFxManager.startEffect(id);
   };

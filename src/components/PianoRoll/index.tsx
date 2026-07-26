@@ -32,6 +32,20 @@ import {
 import { PianoRollKeys } from "./PianoRollKeys";
 import { PianoRollRuler } from "./PianoRollRuler";
 import { PianoRollToolbar } from "./PianoRollToolbar";
+import {
+  applyPianoRollToSequencers,
+  applyPianoRollTrackToSequencer,
+  isSequencerTrack,
+  pullSequencersToPianoRoll,
+  pullTrackFromSequencer,
+} from "./sequencerSync";
+import {
+  type SnapMode,
+  snapBeatValue,
+  quantizeBeat,
+  gridLineResolution,
+} from "./gridSnap";
+import { PianoRollNoteCanvas, CANVAS_NOTE_THRESHOLD } from "./PianoRollNoteCanvas";
 
 interface PianoRollProps {
   isOpen: boolean;
@@ -80,7 +94,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
 
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
   const [gridRes, setGridRes] = useState(0.25);
-  const [snap, setSnap] = useState(true);
+  const [snapMode, setSnapMode] = useState<SnapMode>("hard");
   const [target, setTarget] = useState<SoundTarget>("melody");
   const [tool, setTool] = useState<"draw" | "select">("select");
   const [dragMode, setDragMode] = useState<"none" | "move" | "resize" | "velocity">("none");
@@ -122,6 +136,8 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
   const [hoverInfo, setHoverInfo] = useState<{ midi: number; beat: number } | null>(null);
   const [dragInfo, setDragInfo] = useState<{ midi: number; beat: number } | null>(null);
   const [midiRecord, setMidiRecord] = useState(false);
+  const [syncHint, setSyncHint] = useState<string | null>(null);
+  const openSyncedRef = useRef(false);
   // Track held MIDI notes: midi → { startBeat, velocity, id }
   const heldMidiNotes = useRef<Map<number, { startBeat: number; velocity: number; id: string }>>(new Map());
   // Cache MIDIAccess to avoid requesting it multiple times (prevents duplicate listeners)
@@ -210,6 +226,56 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
     setNotes(next);
   }, [notes, setNotes]);
 
+  // ─── Pull step-sequencer patterns when the editor opens ───────
+  useEffect(() => {
+    if (!isOpen) {
+      openSyncedRef.current = false;
+      return;
+    }
+    if (openSyncedRef.current) return;
+    openSyncedRef.current = true;
+    setNotes((prev) => pullSequencersToPianoRoll(prev));
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setSelectedNoteIds(new Set());
+  }, [isOpen, setNotes]);
+
+  // ─── Sync helpers (Piano Roll ↔ step sequencers) ──────────────
+  const flashSyncHint = useCallback((msg: string) => {
+    setSyncHint(msg);
+    window.setTimeout(() => setSyncHint(null), 2200);
+  }, []);
+
+  const handlePullFromSequencer = useCallback(() => {
+    pushUndo();
+    setNotes((prev) => pullSequencersToPianoRoll(prev));
+    flashSyncHint("Loaded from step sequencers");
+  }, [pushUndo, setNotes, flashSyncHint]);
+
+  const handleApplyToSequencer = useCallback(() => {
+    applyPianoRollToSequencers(notes);
+    flashSyncHint("Applied to step sequencers");
+  }, [notes, flashSyncHint]);
+
+  const handleClose = useCallback(() => {
+    applyPianoRollToSequencers(notes);
+    onClose();
+  }, [notes, onClose]);
+
+  const handleTargetChange = useCallback((next: SoundTarget) => {
+    if (next === target) return;
+    if (isSequencerTrack(target)) {
+      applyPianoRollTrackToSequencer(notes, target);
+    }
+    setTarget(next);
+    if (isSequencerTrack(next)) {
+      setNotes((prev) => [
+        ...prev.filter((n) => n.track !== next),
+        ...pullTrackFromSequencer(next),
+      ]);
+    }
+  }, [target, notes, setNotes]);
+
   // ─── Refs ───────────────────────────────────────────────────
   const gridRef = useRef<HTMLDivElement>(null);
   const pianoKeysRef = useRef<HTMLDivElement>(null);
@@ -232,8 +298,8 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
 
   // ─── Snap helper (shared with ruler) ─────────────────────────
   const snapBeat = useCallback(
-    (beat: number) => (snap ? Math.round(beat / gridRes) * gridRes : beat),
-    [snap, gridRes],
+    (beat: number) => snapBeatValue(beat, gridRes, snapMode),
+    [snapMode, gridRes],
   );
 
   // ─── MIDI Record: listen for external Note On/Off events ──────
@@ -249,7 +315,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       const vel = data[2] ?? 0;
 
       const beat = getDrumCurrentStep() * 0.25;
-      const quantized = snap ? Math.round(beat / gridRes) * gridRes : beat;
+      const quantized = snapBeatValue(beat, gridRes, snapMode);
 
       if (cmd === 0x90 && vel > 0) {
         // Note On: create placeholder note, remember id + start
@@ -299,15 +365,14 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       }
       heldMidiNotes.current.clear();
     };
-  }, [isOpen, midiRecord, target, gridRes, snap, setNotes]);
+  }, [isOpen, midiRecord, target, gridRes, snapMode, setNotes]);
 
   // ─── NOTE ACTIONS ─────────────────────────────────────────────
   const addNote = useCallback(
     (midi: number, startBeat: number) => {
       let finalMidi = midi;
-      let start = startBeat;
       if (scaleSnap) finalMidi = snapToScale(midi, rootMidi, scaleName);
-      if (snap) start = Math.round(startBeat / gridRes) * gridRes;
+      const start = snapBeatValue(startBeat, gridRes, snapMode);
 
       const duration = lastDrawnDurationRef.current ?? Math.max(gridRes, 1);
 
@@ -323,7 +388,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       setSelectedNoteIds(new Set([note.id]));
       previewNote(finalMidi, 0.8, target);
     },
-    [gridRes, snap, scaleSnap, target, rootMidi, scaleName, setNotes],
+    [gridRes, snapMode, scaleSnap, target, rootMidi, scaleName, setNotes],
   );
 
   const removeNotes = useCallback((ids: Set<string>) => {
@@ -341,18 +406,20 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
 
   const quantizeNotes = useCallback(
     (ids: Set<string>) => {
+      if (ids.size === 0) return;
+      pushUndo();
       setNotes((prev) =>
         prev.map((n) => {
           if (!ids.has(n.id)) return n;
           return {
             ...n,
-            start: Math.round(n.start / gridRes) * gridRes,
-            duration: Math.round(n.duration / gridRes) * gridRes,
+            start: quantizeBeat(n.start, gridRes),
+            duration: quantizeBeat(n.duration, gridRes),
           };
         }),
       );
     },
-    [gridRes, setNotes],
+    [gridRes, setNotes, pushUndo],
   );
 
   const copyNotes = useCallback(() => {
@@ -462,6 +529,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         if (!hasSel) return;
+        pushUndo();
         const step = e.shiftKey ? 1 : gridRes;
         setNotes((prev) =>
           prev.map((n) =>
@@ -475,6 +543,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       if (e.key === "ArrowRight") {
         e.preventDefault();
         if (!hasSel) return;
+        pushUndo();
         const step = e.shiftKey ? 1 : gridRes;
         setNotes((prev) =>
           prev.map((n) =>
@@ -491,6 +560,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       if (e.key === "ArrowUp") {
         e.preventDefault();
         if (!hasSel) return;
+        pushUndo();
         const semitones = e.shiftKey ? 12 : 1;
         setNotes((prev) =>
           prev.map((n) => {
@@ -505,6 +575,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         if (!hasSel) return;
+        pushUndo();
         const semitones = e.shiftKey ? 12 : 1;
         setNotes((prev) =>
           prev.map((n) => {
@@ -519,6 +590,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
 
       if (hasSel && e.key >= "0" && e.key <= "9") {
         e.preventDefault();
+        pushUndo();
         const vel = e.key === "0" ? 1.0 : parseInt(e.key) / 10;
         setNotes((prev) => prev.map((n) => (!selectedNoteIds.has(n.id) ? n : { ...n, velocity: vel })));
         return;
@@ -526,6 +598,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
 
       if (e.key === "d" && hasSel) {
         e.preventDefault();
+        pushUndo();
         const selected = notes.filter((n) => selectedNoteIds.has(n.id));
         const dupes = selected.map((n) => ({ ...n, id: uid(), start: n.start + 1 }));
         setNotes((prev) => [...prev, ...dupes]);
@@ -632,7 +705,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       const row = Math.floor(y / rowHeight);
       const midi = midiForRow(row);
       const rawBeat = x / cellW;
-      const beat = snap ? Math.round(rawBeat / gridRes) * gridRes : rawBeat;
+      const beat = snapBeatValue(rawBeat, gridRes, snapMode);
       if (beat < 0 || beat >= totalBeats || midi < BASE_NOTE || midi >= BASE_NOTE + TOTAL_ROWS) return;
 
       const hit = notes.find(
@@ -653,6 +726,13 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
         return;
       }
 
+      // Draw tool: single click places a note (with preview via addNote).
+      if (tool === "draw") {
+        pushUndo();
+        addNote(midi, beat);
+        return;
+      }
+
       gridClickStartRef.current = { x: e.clientX, y: e.clientY };
       try {
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -660,11 +740,10 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
         /* no-op */
       }
 
-      // Both draw and select mode: empty click starts rubber-band selection.
-      // Notes are created only on double-click (handleGridDoubleClick).
+      // Select tool: empty click starts rubber-band selection.
       setRubberBand({ x0: x, y0: y, x1: x, y1: y });
     },
-    [notes, rowHeight, cellW, snap, gridRes, totalBeats, target, selectedNoteIds, gridH, midiForRow],
+    [notes, rowHeight, cellW, snapMode, gridRes, totalBeats, target, selectedNoteIds, gridH, midiForRow, tool, pushUndo, addNote],
   );
 
   // ─── Hover info (lightweight mousemove, no state deps on notes) ──
@@ -703,9 +782,11 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
 
       const selected = new Set<string>();
       for (const note of notes) {
+        if (note.track !== target) continue;
         const noteX = note.start * cellW;
         const noteX2 = noteX + Math.max(12, note.duration * cellW);
         const row = rowForMidi(note.midi);
+        if (row < 0) continue;
         const noteY = row * rowHeight;
         const noteY2 = noteY + rowHeight;
         if (noteX < x1 && noteX2 > x0 && noteY < y1 && noteY2 > y0) {
@@ -714,7 +795,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       }
       setSelectedNoteIds(selected);
     },
-    [rubberBand, notes, cellW, rowHeight, rowForMidi],
+    [rubberBand, notes, cellW, rowHeight, rowForMidi, target],
   );
 
   const handleGridPointerUp = useCallback(
@@ -863,7 +944,9 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
         case "move": {
           const { originals } = dragStartRef.current!;
           const rawBeatDelta = dx / cellW;
-          let beatDelta = snap ? Math.round(rawBeatDelta / gridRes) * gridRes : rawBeatDelta;
+          let beatDelta = snapMode === "hard"
+            ? Math.round(rawBeatDelta / gridRes) * gridRes
+            : rawBeatDelta;
           let pitchDelta = -Math.round(dy / rowHeight);
 
           // Shift-constraint: lock to dominant axis
@@ -881,7 +964,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
               if (!original) return n;
               let newStart = original.start + beatDelta;
               let newMidi = original.midi + pitchDelta;
-              if (snap) newStart = Math.round(newStart / gridRes) * gridRes;
+              newStart = snapBeatValue(newStart, gridRes, snapMode);
               if (scaleSnap) newMidi = snapToScale(newMidi, rootMidi, scaleName);
               return {
                 ...n,
@@ -905,7 +988,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
         case "resize": {
           const beatDelta = dx / cellW;
           let newDur = orig.duration + beatDelta;
-          if (snap) newDur = Math.round(newDur / gridRes) * gridRes;
+          newDur = snapBeatValue(newDur, gridRes, snapMode);
           patchNotes(selectedNoteIds, { duration: Math.max(gridRes, newDur) });
           break;
         }
@@ -918,7 +1001,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
         }
       }
     },
-    [dragMode, gridRes, snap, scaleSnap, rootMidi, scaleName, cellW, rowHeight, selectedNoteIds, patchNotes, setNotes, totalBeats],
+    [dragMode, gridRes, snapMode, scaleSnap, rootMidi, scaleName, cellW, rowHeight, selectedNoteIds, patchNotes, setNotes, totalBeats],
   );
 
   const handleNotePointerUp = useCallback(
@@ -994,9 +1077,10 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
     [tool, notes, target, rowHeight, cellW, gridH, midiForRow, pushUndo, removeNotes, selectedNoteIds],
   );
 
-  // ─── Double-click on grid = create note (works in both modes)
+  // ─── Double-click on grid = create note (select tool shortcut)
   const handleGridDoubleClick = useCallback(
     (e: React.MouseEvent) => {
+      if (tool !== "select") return;
       const rect = gridRef.current?.getBoundingClientRect();
       if (!rect) return;
       const x = e.clientX - rect.left + gridRef.current!.scrollLeft;
@@ -1008,7 +1092,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       pushUndo();
       addNote(midi, beat);
     },
-    [gridH, rowHeight, cellW, addNote, pushUndo, midiForRow],
+    [tool, gridH, rowHeight, cellW, addNote, pushUndo, midiForRow],
   );
 
   const handleKeyClick = useCallback(
@@ -1149,6 +1233,8 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
     (type: HarmonyType) => {
       if (type === "fix-to-scale") {
         const ids = selectedNoteIds.size > 0 ? selectedNoteIds : new Set(notes.map((n) => n.id));
+        if (ids.size === 0) return;
+        pushUndo();
         setNotes((prev) =>
           prev.map((n) => (!ids.has(n.id) ? n : { ...n, midi: snapToScale(n.midi, rootMidi, scaleName) })),
         );
@@ -1158,6 +1244,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
       if (type === "harmonize-3rds" || type === "harmonize-5ths" || type === "harmonize-octave") {
         const selected = notes.filter((n) => selectedNoteIds.has(n.id));
         if (selected.length === 0) return;
+        pushUndo();
         if (type === "harmonize-octave") {
           // Duplicate selected notes one octave up
           const newNotes = selected.map((n) => ({ ...n, id: uid(), midi: n.midi + 12, velocity: n.velocity * 0.9 }));
@@ -1168,11 +1255,12 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
           setNotes((prev) => [...prev, ...newNotes]);
         }
       } else {
+        pushUndo();
         const newNotes = generateHarmony(type, rootNote, scaleName, playheadBeat, gridRes);
         setNotes((prev) => [...prev, ...newNotes]);
       }
     },
-    [notes, selectedNoteIds, rootMidi, rootNote, scaleName, totalBeats, gridRes, setNotes],
+    [notes, selectedNoteIds, rootMidi, rootNote, scaleName, totalBeats, gridRes, setNotes, pushUndo],
   );
 
   // ─── DERIVED ──────────────────────────────────────────────────
@@ -1183,6 +1271,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
   const playheadBeat = getPianoRollCurrentStep() / 4;
   const selectedCount = selectedNoteIds.size;
   const targetNoteCount = notes.filter((note) => note.track === target).length;
+  const useCanvasNotes = targetNoteCount >= CANVAS_NOTE_THRESHOLD;
   const averageSelectedVelocity = useMemo(() => {
     const selected = notes.filter((n) => selectedNoteIds.has(n.id));
     if (selected.length === 0) return null;
@@ -1199,13 +1288,13 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
     <div className="fixed inset-0 z-50 bg-[var(--ed-bg-primary)] flex flex-col">
       <PianoRollToolbar
         target={target}
-        setTarget={setTarget}
+        setTarget={handleTargetChange}
         tool={tool}
         setTool={setTool}
         gridRes={gridRes}
         setGridRes={setGridRes}
-        snap={snap}
-        setSnap={setSnap}
+        snapMode={snapMode}
+        setSnapMode={setSnapMode}
         scaleSnap={scaleSnap}
         setScaleSnap={setScaleSnap}
         loop={loop}
@@ -1242,6 +1331,8 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
           setNotes([]);
           setSelectedNoteIds(new Set());
         }}
+        onPullFromSequencer={handlePullFromSequencer}
+        onApplyToSequencer={handleApplyToSequencer}
         onFit={() => {
           if (!gridRef.current || notes.length === 0) return;
           const targetNotes = notes.filter((n) => n.track === target);
@@ -1256,7 +1347,8 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
             behavior: "smooth",
           });
         }}
-        onClose={onClose}
+        onClose={handleClose}
+        syncHint={syncHint}
       />
 
       {/* ─── MAIN AREA ───────────────────────────────────────────── */}
@@ -1305,10 +1397,12 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
             >
               <div className="text-center text-white/20">
                 <div className="text-[11px] font-semibold mb-1">
-                  {tool === "draw" ? "Click to place notes" : "Drag to select · B to draw"}
+                  {tool === "draw" ? "Click to place notes (Draw mode)" : "Drag to select · Double-click to add note"}
                 </div>
                 <div className="text-[8px] text-white/15">
-                  Right-click to delete · Drag edges to resize · Drag ruler to set loop
+                  {tool === "draw"
+                    ? "Press S for select · Arrow keys move · Q quantize"
+                    : "Press B for draw · Right-click to delete · Drag ruler for loop"}
                 </div>
               </div>
             </div>
@@ -1347,10 +1441,9 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
               );
             })}
 
-            {/* Vertical beat lines — density adapts to snap resolution */}
+            {/* Vertical beat lines — density adapts to grid resolution */}
             {(() => {
-              // Show lines at the finer of (gridRes, 1/4 beat = 1/16 note)
-              const lineRes = Math.min(0.25, gridRes);
+              const lineRes = gridLineResolution(gridRes);
               const stepsPerBeat = Math.round(1 / lineRes);
               const stepsPerBar = 4 * stepsPerBeat;
               const totalLines = totalBeats * stepsPerBeat;
@@ -1431,14 +1524,32 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
                 );
               })}
 
+            {/* Canvas layer for large note sets (selected notes stay DOM for interaction) */}
+            {useCanvasNotes && (
+              <PianoRollNoteCanvas
+                notes={notes.filter((n) => n.track === target)}
+                selectedNoteIds={selectedNoteIds}
+                cellW={cellW}
+                rowHeight={rowHeight}
+                visibleRows={visibleRows}
+                gridW={gridW}
+                gridH={gridH}
+                rowForMidi={rowForMidi}
+                playheadBeat={playheadBeat}
+                isPlaying={isPlaying}
+                target={target}
+              />
+            )}
+
             {/* ─── NOTES (active track) ─────────────────────────── */}
             {notes.map((note) => {
               const row = rowForMidi(note.midi);
               if (row < 0 || row >= visibleRows) return null;
+              const isSel = selectedNoteIds.has(note.id);
+              if (useCanvasNotes && note.track === target && !isSel) return null;
               const x = note.start * cellW;
               const y = row * rowHeight;
               const w = Math.max(12, note.duration * cellW);
-              const isSel = selectedNoteIds.has(note.id);
               const noteColor = TARGET_COLORS[note.track];
               // Velocity → brightness (0.5 dim → 1.0 bright)
               const velBrightness = 0.55 + note.velocity * 0.55;
@@ -1795,7 +1906,9 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
               )
               : (
                 <span className="text-white/30">
-                  Click to place notes · Right-click to delete · Drag ruler for loop
+                  {tool === "draw"
+                    ? "Click to place notes · S for select · Q quantize"
+                    : "Drag to select · Double-click to add · B for draw · Q quantize"}
                 </span>
               )}
         </div>

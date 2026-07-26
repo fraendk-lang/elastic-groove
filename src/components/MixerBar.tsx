@@ -213,14 +213,6 @@ function GroupBusPanel({ groupCanvasRefs, faderH }: GroupBusPanelProps) {
   const setGroupFader = useMixerBarStore((s) => s.setGroupFader);
   const setGroupMute  = useMixerBarStore((s) => s.setGroupMute);
 
-  useEffect(() => {
-    GROUP_BUS_IDS.forEach((id) => {
-      const bus = groupBuses[id]!;
-      const gain = bus.muted ? 0 : faderToGain(bus.fader);
-      audioEngine.setGroupVolume(id, gain);
-    });
-  }, [groupBuses]);
-
   return (
     <div className="border-b border-white/[0.06] bg-[#0a0a0a]">
       <div className="flex items-center gap-px py-1.5 px-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
@@ -298,7 +290,6 @@ export function MixerBar({ embedded = false }: { embedded?: boolean } = {}) {
   const {
     channels, expandedChannel,
     setFader, setMute, setSolo, setPan, setEQ, setSendRev, setSendDly, setExpanded,
-    groupBuses,
   } = useMixerBarStore();
 
   const [groupPanelOpen, setGroupPanelOpen] = useState(false);
@@ -331,28 +322,6 @@ export function MixerBar({ embedded = false }: { embedded?: boolean } = {}) {
 
   const anySoloed = channels.some((ch) => ch.soloed);
 
-  // Apply fader + mute/solo to audioEngine whenever they change
-  useEffect(() => {
-    const soloed = new Set(channels.flatMap((ch, i) => ch.soloed ? [i] : []));
-    channels.forEach((ch, i) => {
-      let gain: number;
-      if (soloed.size > 0) {
-        gain = (soloed.has(i) && !ch.muted) ? faderToGain(ch.fader) : 0;
-      } else {
-        gain = ch.muted ? 0 : faderToGain(ch.fader);
-      }
-      audioEngine.setChannelVolume(i, gain);
-    });
-  }, [channels]);
-
-  // Apply group bus fader + mute to audioEngine — runs always, not only when panel is open
-  useEffect(() => {
-    GROUP_BUS_IDS.forEach((id) => {
-      const bus = groupBuses[id]!;
-      audioEngine.setGroupVolume(id, bus.muted ? 0 : faderToGain(bus.fader));
-    });
-  }, [groupBuses]);
-
   return (
     <div className="relative flex flex-col shrink-0 bg-[#0e0e0e] border-t border-white/[0.07]">
       {/* ── Top resize handle — drag up to grow, drag down to shrink ─────── */}
@@ -377,10 +346,10 @@ export function MixerBar({ embedded = false }: { embedded?: boolean } = {}) {
           color={CHANNELS[expandedChannel]?.color ?? "#888"}
           label={CHANNELS[expandedChannel]?.label ?? ""}
           onClose={() => setExpanded(null)}
-          onEQ={(band, gain) => { setEQ(expandedChannel, band, gain); audioEngine.setChannelEQ(expandedChannel, band, gain); }}
-          onPan={(pan) => { setPan(expandedChannel, pan); audioEngine.setChannelPan(expandedChannel, pan); }}
-          onSendRev={(v) => { setSendRev(expandedChannel, v); audioEngine.setChannelReverbSend(expandedChannel, v / 100); }}
-          onSendDly={(v) => { setSendDly(expandedChannel, v); audioEngine.setChannelDelaySend(expandedChannel, v / 100); }}
+          onEQ={(band, gain) => setEQ(expandedChannel, band, gain)}
+          onPan={(pan) => setPan(expandedChannel, pan)}
+          onSendRev={(v) => setSendRev(expandedChannel, v)}
+          onSendDly={(v) => setSendDly(expandedChannel, v)}
         />
       )}
 

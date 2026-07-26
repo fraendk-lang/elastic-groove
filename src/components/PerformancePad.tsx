@@ -234,7 +234,17 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   interface TrailPoint { x: number; y: number; t: number; pointerId: number }
   const trailRef = useRef<TrailPoint[]>([]);
 
-  // Reset transpose when overlay closes (prevents stale offset if closed mid-press)
+  useEffect(() => {
+    if (!isOpen) return;
+    beatFxManager.setContext({ target: target === "melody" ? "melody" : "bass", bpm });
+  }, [isOpen, target, bpm]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    const activeFx = beatFxManager.activeEffect;
+    if (activeFx) beatFxManager.stopEffect(activeFx);
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) {
       setBassLiveTranspose(0);
@@ -355,7 +365,10 @@ export function PerformancePad({ isOpen, onClose }: Props) {
 
   const handleArpToggle = useCallback(() => {
     setArpOn((prev) => {
-      if (prev) arpSchedulerRef.current?.stop();
+      if (prev) {
+        arpSchedulerRef.current?.stop();
+        melodyEngine.releaseAllPolyVoices();
+      }
       return !prev;
     });
   }, []);
@@ -758,6 +771,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
     // Stop arp when last finger lifts (unless latch is on)
     if (arpOnRef.current && target === "melody" && activeVoicesRef.current.size === 0 && !arpLatchRef.current) {
       arpSchedulerRef.current?.stop();
+      melodyEngine.releaseAllPolyVoices();
     }
 
     // Restore padVolume when Y-axis volume modulation ends
@@ -935,6 +949,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
             const b = useDrumStore.getState().bpm;
             chaosFxBus.setXY("melody", ev.mode, ev.x, ev.y, b);
           } else if (ev.kind === "beat-down") {
+            beatFxManager.setContext({ target: "melody", bpm: useDrumStore.getState().bpm });
             beatFxManager.startEffect(ev.fxId);
           } else {
             beatFxManager.stopEffect(ev.fxId);
@@ -986,6 +1001,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
       // Stop arp if it was started by loop playback
       if (arpSchedulerRef.current?.isRunning) {
         arpSchedulerRef.current.stop();
+        melodyEngine.releaseAllPolyVoices();
       }
       // Release any beat-FX still active from FX automation — otherwise a
       // beat-down whose matching beat-up didn't fire would hang the effect.
@@ -2086,6 +2102,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
               }}
               beatFx={CHAOS_BEAT_FX}
               onBeatFxDown={(id) => {
+                beatFxManager.setContext({ target: "melody", bpm: useDrumStore.getState().bpm });
                 beatFxManager.startEffect(id as BeatFxId);
                 appendFxEvent({ kind: "beat-down", fxId: id as BeatFxId });
                 const active = beatFxManager.activeEffect;

@@ -57,7 +57,7 @@ export const DEFAULT_ARP_SETTINGS: ArpSettings = {
  * 1/4 = 1 (full step), 1/8 = 0.5 (half), 1/16 = 0.25 (quarter), etc.
  * Used to calculate sub-step duration from the main step duration.
  */
-const ARP_RATES: Record<ArpRate, number> = {
+export const ARP_RATES: Record<ArpRate, number> = {
   "1/4": 1,
   "1/8": 0.5,
   "1/8t": 1 / 3,    // Triplet eighths (3 per beat)
@@ -193,7 +193,8 @@ export function generateArpNotes(
   scaleName: string,
   rootMidi: number,
   baseVelocity = 0.85,
-  extraChordNotes: number[] = []  // For "chord" mode or multi-note input (held chord)
+  extraChordNotes: number[] = [],
+  globalStepOffset = 0,
 ): ArpNote[] {
   const { mode, rate, octaves, gate, swing, skipProb, velDecay, velocityJitter } = settings;
 
@@ -322,7 +323,7 @@ export function generateArpNotes(
         result.push({ offset: t, note: n, duration: noteDuration, velocity: vel });
       }
     } else {
-      const note = noteSequence[i % noteSequence.length] ?? baseNote;
+      const note = noteSequence[(globalStepOffset + i) % noteSequence.length] ?? baseNote;
       result.push({ offset: t, note, duration: noteDuration, velocity: vel });
     }
   }

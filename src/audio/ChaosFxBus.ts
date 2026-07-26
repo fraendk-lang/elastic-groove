@@ -7,6 +7,8 @@
  */
 
 import { audioEngine } from "./AudioEngine";
+import { melodyEngine } from "./MelodyEngine";
+import { bassEngine } from "./BassEngine";
 
 // Synth channels that get auto-sends when Kaoss Pad uses REVERB/DELAY modes (master/drums fallback)
 export const KAOSS_SYNTH_CHANNELS = [12, 13, 14] as const;
@@ -164,6 +166,10 @@ export function applyFilter(target: FxTarget, type: BiquadFilterType, freq: numb
   } else {
     for (const ch of t.channels) audioEngine.setChannelFilter(ch, type, freq, q);
   }
+  // Also sweep live synth voices so the pad hears the filter immediately
+  const resNorm = Math.min(1, q / 25);
+  if (target === "melody") melodyEngine.sweepLiveFilter(freq, resNorm);
+  else if (target === "bass") bassEngine.sweepLiveFilter(freq, resNorm);
 }
 
 export function releaseFilter(target: FxTarget): void {
@@ -173,6 +179,8 @@ export function releaseFilter(target: FxTarget): void {
   } else {
     for (const ch of t.channels) audioEngine.bypassChannelFilter(ch);
   }
+  if (target === "melody") melodyEngine.sweepLiveFilter(12000, 0.15);
+  else if (target === "bass") bassEngine.sweepLiveFilter(8000, 0.15);
 }
 
 // ─── FX Application ─────────────────────────────────────
@@ -262,7 +270,82 @@ export function applyFxMode(mode: FxMode, x: number, y: number, target: FxTarget
   }
 }
 
+// ─── Saved FX state (send levels + global wet params) ────
+
+interface SavedSendLevels {
+  channels: number[];
+  reverb: number[];
+  delay: number[];
+}
+
+interface SavedGlobalFx {
+  reverbLevel: number;
+  reverbDamping: number;
+  reverbPreDelay: number;
+  delayLevel: number;
+  delayTime: number;
+  delayFeedback: number;
+}
+
+let _savedSends: SavedSendLevels | null = null;
+let _savedGlobals: SavedGlobalFx | null = null;
+let _sendBoostTarget: FxTarget | null = null;
+
+function _saveGlobalsIfNeeded(): void {
+  if (_savedGlobals) return;
+  _savedGlobals = {
+    reverbLevel: audioEngine.getReverbLevel(),
+    reverbDamping: 8000,
+    reverbPreDelay: 0,
+    delayLevel: audioEngine.getDelayLevel(),
+    delayTime: 0.375,
+    delayFeedback: 0.4,
+  };
+}
+
+function _boostSendsForTarget(target: FxTarget, mode: FxMode): void {
+  if (mode !== "REVERB" && mode !== "DELAY") return;
+  if (_savedSends !== null && _sendBoostTarget === target) return;
+
+  const channels = getSendChannels(target);
+  _savedSends = {
+    channels: [...channels],
+    reverb: channels.map((ch) => audioEngine.getChannelReverbSend(ch)),
+    delay: channels.map((ch) => audioEngine.getChannelDelaySend(ch)),
+  };
+  _sendBoostTarget = target;
+
+  const sendLevel = target === "melody" || target === "bass" ? 0.55 : KAOSS_AUTO_SEND;
+  for (const ch of channels) {
+    audioEngine.setChannelReverbSend(ch, Math.max(audioEngine.getChannelReverbSend(ch), sendLevel));
+    audioEngine.setChannelDelaySend(ch, Math.max(audioEngine.getChannelDelaySend(ch), sendLevel));
+  }
+}
+
+export function restoreSavedSends(): void {
+  if (!_savedSends) return;
+  _savedSends.channels.forEach((ch, i) => {
+    audioEngine.setChannelReverbSend(ch, _savedSends!.reverb[i] ?? 0);
+    audioEngine.setChannelDelaySend(ch, _savedSends!.delay[i] ?? 0);
+  });
+  _savedSends = null;
+  _sendBoostTarget = null;
+}
+
+function _restoreGlobals(): void {
+  if (!_savedGlobals) return;
+  const g = _savedGlobals;
+  audioEngine.setReverbLevel(g.reverbLevel);
+  audioEngine.setReverbDamping(g.reverbDamping);
+  audioEngine.setReverbPreDelay(g.reverbPreDelay);
+  audioEngine.setDelayLevel(g.delayLevel);
+  audioEngine.setDelayParams(g.delayTime, g.delayFeedback, 4000);
+  _savedGlobals = null;
+}
+
 export function activateFxMode(mode: FxMode, x: number, y: number, target: FxTarget, bpm: number): void {
+  _saveGlobalsIfNeeded();
+  _boostSendsForTarget(target, mode);
   if (mode === "FLANGER") {
     const rate = 0.05 * Math.pow(4 / 0.05, x);
     const depth = Math.min(1.0, y * 1.5);
@@ -284,13 +367,12 @@ export function releaseFxMode(mode: FxMode, target: FxTarget): void {
       releaseFilter(target);
       break;
     case "DELAY":
-      audioEngine.setDelayParams(0.375, 0.4, 4000);
-      audioEngine.setDelayLevel(0.3);
+      _restoreGlobals();
+      restoreSavedSends();
       break;
     case "REVERB":
-      audioEngine.setReverbLevel(0.35);
-      audioEngine.setReverbDamping(8000);
-      audioEngine.setReverbPreDelay(0);
+      _restoreGlobals();
+      restoreSavedSends();
       break;
     case "FLANGER":
       audioEngine.stopFlanger();
@@ -314,6 +396,7 @@ export function releaseFxMode(mode: FxMode, target: FxTarget): void {
 
 class ChaosFxBus {
   setXY(target: FxTarget, mode: FxMode, x: number, y: number, bpm: number): void {
+    if (mode === "REVERB" || mode === "DELAY") _boostSendsForTarget(target, mode);
     applyFxMode(mode, x, y, target, bpm);
   }
   activate(target: FxTarget, mode: FxMode, x: number, y: number, bpm: number): void {
@@ -321,6 +404,16 @@ class ChaosFxBus {
   }
   release(target: FxTarget, mode: FxMode): void {
     releaseFxMode(mode, target);
+  }
+  /** Force-restore sends + globals (panel close / panic). */
+  resetAll(): void {
+    restoreSavedSends();
+    _restoreGlobals();
+    audioEngine.bypassMasterFilter();
+    audioEngine.stopFlanger();
+    audioEngine.setMasterSaturation(0);
+    audioEngine.setPhaserLevel(0);
+    audioEngine.setChorusLevel(0);
   }
 }
 

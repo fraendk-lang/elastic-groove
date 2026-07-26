@@ -15,6 +15,12 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { audioEngine, AudioEngine, DELAY_DIVISION_NAMES, REVERB_TYPES } from "../audio/AudioEngine";
 import type { ReverbType } from "../audio/SendFx";
 import { ChannelFxRack } from "./ChannelFxRack";
+import {
+  useMixerBarStore,
+  faderToGain,
+  NUM_MIXER_CHANNELS,
+  type GroupBusId,
+} from "../store/mixerBarStore";
 
 // ─── Channel meta ────────────────────────────────────────
 
@@ -46,14 +52,15 @@ const CHANNELS = [
   { id: 24, label: "LAY 1", color: "#f472b6", badge: "LAY" },
   { id: 25, label: "LAY 2", color: "#22c55e", badge: "LAY" },
   { id: 26, label: "LAY 3", color: "#a78bfa", badge: "LAY" },
+  { id: 27, label: "AUDIO", color: "#f97316", badge: "AUD" },
 ];
 
-const NUM_CHANNELS = CHANNELS.length;
+const NUM_CHANNELS = NUM_MIXER_CHANNELS;
 
 const GROUPS = [
   { id: "drums", label: "DRUMS", color: "#f59e0b", channels: [0, 1, 2, 3, 4, 5] },
   { id: "tops",  label: "TOPS",  color: "#3b82f6", channels: [6, 7, 8, 9, 10, 11] },
-  { id: "music", label: "MUSIC", color: "#10b981", channels: [12, 13, 14, 15, 24, 25, 26] },
+  { id: "music", label: "MUSIC", color: "#10b981", channels: [12, 13, 14, 15, 24, 25, 26, 27] },
   { id: "loops", label: "LOOPS", color: "#2EC4B6", channels: [16, 17, 18, 19, 20, 21, 22, 23] },
 ];
 
@@ -87,14 +94,6 @@ function dbToPercent(db: number): number {
   return curved * 100;
 }
 
-function faderToGain(pos: number): number {
-  if (pos <= 0.005) return 0;
-  const db = pos < 0.75
-    ? -60 + (pos / 0.75) * 60
-    : (pos - 0.75) / 0.25 * 6;
-  return AudioEngine.dbToLinear(db);
-}
-
 // ─── Types ───────────────────────────────────────────────
 
 interface MeterData { rmsDb: number; peakDb: number }
@@ -107,6 +106,13 @@ interface MixerPanelProps {
 // ─── Main component ──────────────────────────────────────
 
 export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
+  const {
+    channels, groupBuses,
+    setFader, setMute, setSolo, setPan, setEQ, setEqOn,
+    setSendRev, setSendDly, setSendCh, setSendPh,
+    setGroupFader,
+  } = useMixerBarStore();
+
   const [meters, setMeters] = useState<MeterData[]>(
     Array.from({ length: NUM_CHANNELS }, () => ({ rmsDb: -Infinity, peakDb: -Infinity }))
   );
@@ -118,21 +124,7 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
     Object.fromEntries(RETURN_STRIPS.map((b) => [b.id, { rmsDb: -Infinity, peakDb: -Infinity }]))
   );
 
-  const [faders,      setFaders]      = useState<number[]>(new Array(NUM_CHANNELS).fill(750));
   const [masterFader, setMasterFader] = useState(700);
-  const [groupFaders, setGroupFaders] = useState<Record<string, number>>(() =>
-    Object.fromEntries(BUS_STRIPS.map((b) => [b.id, 750]))
-  );
-  const [pans,    setPans]    = useState<number[]>(new Array(NUM_CHANNELS).fill(0));
-  const [muted,   setMuted]   = useState<Set<number>>(new Set());
-  const [soloed,  setSoloed]  = useState<Set<number>>(new Set());
-
-  const [sends, setSends] = useState<{ a: number[]; b: number[]; c: number[]; d: number[] }>({
-    a: Array.from({ length: NUM_CHANNELS }, (_, i) => Math.round(audioEngine.getChannelReverbSend(i) * 100)),
-    b: Array.from({ length: NUM_CHANNELS }, (_, i) => Math.round(audioEngine.getChannelDelaySend(i) * 100)),
-    c: Array.from({ length: NUM_CHANNELS }, (_, i) => Math.round(audioEngine.getChannelChorusSend(i) * 100)),
-    d: Array.from({ length: NUM_CHANNELS }, (_, i) => Math.round(audioEngine.getChannelPhaserSend(i) * 100)),
-  });
 
   const [reverbLevel,   setReverbLevel]   = useState(() => Math.round(audioEngine.getReverbLevel() * 100));
   const [reverbType,    setReverbType]    = useState("hall");
@@ -157,8 +149,6 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
 
   // ── Per-channel EQ / Comp / Drive (lifted state so inspector + EXT stay in sync) ──
   const [selectedCh, setSelectedCh] = useState<number | null>(null);
-  const [chEQs,  setChEQs]  = useState(() => Array.from({ length: NUM_CHANNELS }, () => ({ lo: 0, mid: 0, hi: 0 })));
-  const [chEQOn, setChEQOn] = useState<boolean[]>(() => new Array(NUM_CHANNELS).fill(false));
   const [chComps, setChComps] = useState(() =>
     Array.from({ length: NUM_CHANNELS }, () => ({ threshold: -12, ratio: 4, attack: 10, release: 150 }))
   );
@@ -241,50 +231,31 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
 
   // ── Handlers ────────────────────────────────────────────
   const handleFader = useCallback((ch: number, val: number) => {
-    setFaders((p) => { const n = [...p]; n[ch] = val; return n; });
-    audioEngine.setChannelVolume(ch, faderToGain(val / 1000));
-  }, []);
+    setFader(ch, val);
+  }, [setFader]);
 
   const handleMasterFader = useCallback((val: number) => {
     setMasterFader(val);
-    audioEngine.setMasterVolume(faderToGain(val / 1000));
+    audioEngine.setMasterVolume(faderToGain(val));
   }, []);
 
-  const handleGroupFader = useCallback((group: string, val: number) => {
-    setGroupFaders((prev) => ({ ...prev, [group]: val }));
-    audioEngine.setGroupVolume(group, faderToGain(val / 1000));
-  }, []);
+  const handleGroupFader = useCallback((group: GroupBusId, val: number) => {
+    setGroupFader(group, val);
+  }, [setGroupFader]);
 
   const handleSend = useCallback((ch: number, key: SendKey, v: number) => {
-    setSends((p) => {
-      const n = { ...p, [key]: [...p[key]] };
-      n[key][ch] = v;
-      return n;
-    });
-    if (key === "a") audioEngine.setChannelReverbSend(ch, v / 100);
-    if (key === "b") audioEngine.setChannelDelaySend(ch, v / 100);
-    if (key === "c") audioEngine.setChannelChorusSend(ch, v / 100);
-    if (key === "d") audioEngine.setChannelPhaserSend(ch, v / 100);
-  }, []);
+    if (key === "a") setSendRev(ch, v);
+    if (key === "b") setSendDly(ch, v);
+    if (key === "c") setSendCh(ch, v);
+    if (key === "d") setSendPh(ch, v);
+  }, [setSendRev, setSendDly, setSendCh, setSendPh]);
 
   // ── Per-channel EQ handlers ──────────────────────────────
   const handleChEQBand = (ch: number, band: "lo" | "mid" | "hi", v: number) => {
-    setChEQs((prev) => { const n = [...prev]; n[ch] = { ...n[ch]!, [band]: v }; return n; });
-    if (chEQOn[ch]) audioEngine.setChannelEQ(ch, band, v);
+    setEQ(ch, band, v);
   };
   const handleChEQToggle = (ch: number) => {
-    const wasOn = chEQOn[ch]!;
-    const eq = chEQs[ch]!;
-    setChEQOn((prev) => { const n = [...prev]; n[ch] = !wasOn; return n; });
-    if (!wasOn) {
-      audioEngine.setChannelEQ(ch, "lo", eq.lo);
-      audioEngine.setChannelEQ(ch, "mid", eq.mid);
-      audioEngine.setChannelEQ(ch, "hi", eq.hi);
-    } else {
-      audioEngine.setChannelEQ(ch, "lo", 0);
-      audioEngine.setChannelEQ(ch, "mid", 0);
-      audioEngine.setChannelEQ(ch, "hi", 0);
-    }
+    setEqOn(ch, !channels[ch]!.eqOn);
   };
 
   // ── Per-channel Comp handlers ────────────────────────────
@@ -308,25 +279,12 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
   };
 
   const toggleMute = useCallback((ch: number) => {
-    setMuted((prev) => {
-      const next = new Set(prev);
-      if (next.has(ch)) { next.delete(ch); audioEngine.setChannelVolume(ch, faderToGain((faders[ch] ?? 750) / 1000)); }
-      else { next.add(ch); audioEngine.setChannelVolume(ch, 0); }
-      return next;
-    });
-  }, [faders]);
+    setMute(ch, !channels[ch]!.muted);
+  }, [channels, setMute]);
 
   const toggleSolo = useCallback((ch: number) => {
-    setSoloed((prev) => {
-      const next = new Set(prev);
-      if (next.has(ch)) next.delete(ch); else next.add(ch);
-      for (let i = 0; i < NUM_CHANNELS; i++) {
-        if (next.size === 0) audioEngine.setChannelVolume(i, muted.has(i) ? 0 : faderToGain((faders[i] ?? 750) / 1000));
-        else audioEngine.setChannelVolume(i, next.has(i) ? faderToGain((faders[i] ?? 750) / 1000) : 0);
-      }
-      return next;
-    });
-  }, [faders, muted]);
+    setSolo(ch, !channels[ch]!.soloed);
+  }, [channels, setSolo]);
 
   if (!isOpen) return null;
 
@@ -403,7 +361,9 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
         {(activeTab === "channels" || activeTab === "sends") && GROUPS.map((group) => (
           <GroupBox key={group.id} label={group.label} color={group.color} defaultCollapsed={group.id === "loops"}>
             {group.channels.map((chId) => {
-              const ch = CHANNELS[chId]!;
+              const ch = CHANNELS[chId];
+              if (!ch) return null;
+              const mix = channels[chId]!;
               return (
                 <ChannelStrip
                   key={chId}
@@ -412,23 +372,20 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
                   color={ch.color}
                   badge={ch.badge}
                   meter={meters[chId]!}
-                  faderValue={faders[chId] ?? 750}
-                  sendA={sends.a[chId] ?? 0}
-                  sendB={sends.b[chId] ?? 0}
-                  sendC={sends.c[chId] ?? 0}
-                  sendD={sends.d[chId] ?? 0}
-                  panValue={pans[chId] ?? 0}
-                  isMuted={muted.has(chId)}
-                  isSoloed={soloed.has(chId)}
+                  faderValue={mix.fader}
+                  sendA={mix.sendRev}
+                  sendB={mix.sendDly}
+                  sendC={mix.sendCh}
+                  sendD={mix.sendPh}
+                  panValue={mix.pan}
+                  isMuted={mix.muted}
+                  isSoloed={mix.soloed}
                   viewMode={viewMode}
                   sendsOnly={activeTab === "sends"}
                   activeSendPop={sendPopover?.ch === chId ? sendPopover.send : null}
                   onFader={(v) => handleFader(chId, v)}
                   onSend={(key, v) => handleSend(chId, key, v)}
-                  onPan={(v) => {
-                    setPans((p) => { const n = [...p]; n[chId] = v; return n; });
-                    audioEngine.setChannelPan(chId, v);
-                  }}
+                  onPan={(v) => setPan(chId, v)}
                   onMute={() => toggleMute(chId)}
                   onSolo={() => toggleSolo(chId)}
                   onDotClick={(send, rect) => {
@@ -454,7 +411,7 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
                 label={bus.label}
                 color={bus.color}
                 meter={groupMeters[bus.id] ?? { rmsDb: -Infinity, peakDb: -Infinity }}
-                faderValue={groupFaders[bus.id] ?? 750}
+                faderValue={groupBuses[bus.id]?.fader ?? 750}
                 onFader={(v) => handleGroupFader(bus.id, v)}
               />
             ))}
@@ -492,10 +449,10 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
           ch={sendPopover.ch}
           send={sendPopover.send}
           value={
-            sendPopover.send === "a" ? sends.a[sendPopover.ch] ?? 0
-            : sendPopover.send === "b" ? sends.b[sendPopover.ch] ?? 0
-            : sendPopover.send === "c" ? sends.c[sendPopover.ch] ?? 0
-            : sends.d[sendPopover.ch] ?? 0
+            sendPopover.send === "a" ? channels[sendPopover.ch]?.sendRev ?? 0
+            : sendPopover.send === "b" ? channels[sendPopover.ch]?.sendDly ?? 0
+            : sendPopover.send === "c" ? channels[sendPopover.ch]?.sendCh ?? 0
+            : channels[sendPopover.ch]?.sendPh ?? 0
           }
           rect={sendPopover.rect}
           onChange={(v) => handleSend(sendPopover.ch, sendPopover.send, v)}
@@ -506,8 +463,12 @@ export function MixerPanel({ isOpen, onClose }: MixerPanelProps) {
       <FxBar
         selectedCh={selectedCh}
         selectedMeta={selectedCh !== null ? CHANNELS[selectedCh] ?? null : null}
-        chEQ={selectedCh !== null ? chEQs[selectedCh] ?? { lo: 0, mid: 0, hi: 0 } : null}
-        chEQOn={selectedCh !== null ? chEQOn[selectedCh] ?? false : false}
+        chEQ={selectedCh !== null ? {
+          lo: channels[selectedCh]?.eqLo ?? 0,
+          mid: channels[selectedCh]?.eqMid ?? 0,
+          hi: channels[selectedCh]?.eqHi ?? 0,
+        } : null}
+        chEQOn={selectedCh !== null ? channels[selectedCh]?.eqOn ?? false : false}
         chComp={selectedCh !== null ? chComps[selectedCh] ?? { threshold: -12, ratio: 4, attack: 10, release: 150 } : null}
         chCompOn={selectedCh !== null ? chCompOn[selectedCh] ?? false : false}
         chDrive={selectedCh !== null ? chDrives[selectedCh] ?? 0 : 0}
@@ -615,7 +576,7 @@ function ChannelStrip({
 }: ChannelStripProps) {
   const faderDb = faderValue <= 5
     ? -Infinity
-    : AudioEngine.linearToDb(faderToGain(faderValue / 1000));
+    : AudioEngine.linearToDb(faderToGain(faderValue));
 
   const SEND_META: { key: SendKey; color: string; label: string }[] = [
     { key: "a", color: "#3b82f6", label: "REV" },

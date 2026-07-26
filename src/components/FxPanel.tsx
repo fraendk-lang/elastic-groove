@@ -12,8 +12,7 @@ import { motionRecorder, type MotionRecording } from "../audio/MotionRecorder";
 import {
   type FxTarget, type FxMode,
   FX_TARGETS, MODE_CONFIG, FX_MODES, FX_MODE_PRESETS,
-  KAOSS_AUTO_SEND,
-  getSendChannels, getMusicalValue,
+  getMusicalValue,
   applyFxMode, activateFxMode, releaseFxMode,
   chaosFxBus,
 } from "../audio/ChaosFxBus";
@@ -102,10 +101,10 @@ function createBeatFxList(): BeatFx[] {
       color: "#f59e0b",
       _divIndex: 0,
       activate: function (bpm: number) {
-        const divisions = [2, 4, 8];
-        const rate = (bpm / 60) * divisions[this._divIndex! % divisions.length]!;
+        const divisions = [4, 8, 16];
+        const div = divisions[this._divIndex! % divisions.length]!;
         this._divIndex = (this._divIndex ?? 0) + 1;
-        audioEngine.startStutter(rate);
+        audioEngine.startStutter((bpm / 60) * div);
       },
       deactivate: () => {
         audioEngine.stopStutter();
@@ -241,12 +240,9 @@ function createBeatFxList(): BeatFx[] {
       label: "ECHO",
       color: "#3b82f6",
       activate: (bpm: number) => {
-        // Dotted 8th delay with musical feedback amount + rolled-off filter
-        // Previous 0.9/0.8 was borderline runaway — now 0.6/0.65 with
-        // damped highs so repeats decay naturally instead of harsh.
-        const beatSec = 60 / bpm;
-        audioEngine.setDelayLevel(0.6);
-        audioEngine.setDelayParams(beatSec * 0.75, 0.65, 3500);
+        audioEngine.setDelayDivision("1/8", bpm);
+        audioEngine.setDelayLevel(0.65);
+        audioEngine.setDelayParams((60 / bpm) * 0.5, 0.62, 3500);
       },
       deactivate: () => {
         audioEngine.setDelayLevel(0.3);
@@ -274,7 +270,6 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
   const [recordings, setRecordings] = useState<MotionRecording[]>([]);
 
   const beatFxListRef = useRef(createBeatFxList());
-  const savedSendsRef = useRef<{ channels: number[]; reverb: number[]; delay: number[] } | null>(null);
 
   const chaosBeatFx = useMemo(
     () => beatFxListRef.current.map((b, i) => ({ id: String(i), label: b.label })),
@@ -308,6 +303,7 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
     setPadX(0.5);
     setPadY(0.5);
     setPadActive(false);
+    chaosFxBus.resetAll();
   }, [activeBeatFx, activeMode, bpm, fxTarget]);
 
   // ─── XY Pad Handlers (ChaosPad adapters) ──────────────
@@ -321,18 +317,6 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
       setPadX(x);
       setPadY(y);
       setPadActive(true);
-      // Auto-open channel sends for REVERB/DELAY modes so the Kaoss Pad
-      // actually routes signal through the send buses (they start at 0 by default).
-      if ((mode === "REVERB" || mode === "DELAY") && savedSendsRef.current === null) {
-        const sendChs = getSendChannels(fxTarget);
-        const savedReverb = sendChs.map((ch) => audioEngine.getChannelReverbSend(ch));
-        const savedDelay  = sendChs.map((ch) => audioEngine.getChannelDelaySend(ch));
-        savedSendsRef.current = { channels: sendChs, reverb: savedReverb, delay: savedDelay };
-        for (const ch of sendChs) {
-          audioEngine.setChannelReverbSend(ch, KAOSS_AUTO_SEND);
-          audioEngine.setChannelDelaySend(ch, KAOSS_AUTO_SEND);
-        }
-      }
       chaosFxBus.activate(fxTarget, mode, x, y, bpm);
       if (isRecording) {
         motionRecorder.addPoint(x, y);
@@ -360,15 +344,6 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
         setHoldLocked(true);
       } else {
         chaosFxBus.release(fxTarget, mode);
-        // Restore auto-opened sends when releasing without hold
-        if (savedSendsRef.current !== null) {
-          const saved = savedSendsRef.current;
-          savedSendsRef.current = null;
-          saved.channels.forEach((ch, i) => {
-            audioEngine.setChannelReverbSend(ch, saved.reverb[i] ?? 0);
-            audioEngine.setChannelDelaySend(ch, saved.delay[i] ?? 0);
-          });
-        }
       }
     },
     [fxTarget, holdMode]
@@ -377,15 +352,6 @@ export function FxPanel({ isOpen, onClose }: FxPanelProps) {
   const releaseHold = useCallback(() => {
     setHoldLocked(false);
     releaseFxMode(activeMode, fxTarget);
-    // Restore auto-opened sends when hold is released
-    if (savedSendsRef.current !== null) {
-      const saved = savedSendsRef.current;
-      savedSendsRef.current = null;
-      saved.channels.forEach((ch, i) => {
-        audioEngine.setChannelReverbSend(ch, saved.reverb[i] ?? 0);
-        audioEngine.setChannelDelaySend(ch, saved.delay[i] ?? 0);
-      });
-    }
   }, [activeMode, fxTarget]);
 
   // ─── Beat FX Handlers ───────────────────────────────

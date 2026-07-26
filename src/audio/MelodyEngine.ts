@@ -1011,6 +1011,20 @@ export class MelodyEngine {
     };
   }
 
+  /** Release all pool voices immediately (arp stop / pad lift). */
+  releaseAllPolyVoices(): void {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const release = Math.max(0.005, this.params.ampRelease / 1000);
+    for (const voice of this.voicePool) {
+      if (!voice.inUse) continue;
+      voice.vca.gain.cancelScheduledValues(now);
+      voice.vca.gain.setTargetAtTime(0.0001, now, release / 4);
+      voice.releaseAt = now + release + 0.05;
+      voice.inUse = false;
+    }
+  }
+
   // ── Pool teardown ──────────────────────────────────────────────────────────
 
   private destroyPool(): void {

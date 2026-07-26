@@ -13,7 +13,7 @@
  */
 import { schedulerClock } from './SchedulerClock';
 import { audioEngine } from './AudioEngine';
-import { generateArpNotes, type ArpSettings } from './Arpeggiator';
+import { generateArpNotes, type ArpSettings, ARP_RATES } from './Arpeggiator';
 
 /**
  * Default lookahead window (seconds). Small for interactive responsiveness:
@@ -41,6 +41,7 @@ export interface ArpSchedulerOptions {
 export class ArpScheduler {
   private options: ArpSchedulerOptions | null = null;
   private nextStepTime = 0;
+  private arpStepOffset = 0;
   private unsubscribe: (() => void) | null = null;
   private _running = false;
 
@@ -52,6 +53,7 @@ export class ArpScheduler {
     this.stop();
     this.options = options;
     this._running = true;
+    this.arpStepOffset = 0;
 
     const ctx = audioEngine.getAudioContext();
     if (!ctx) { this._running = false; return; }
@@ -68,6 +70,7 @@ export class ArpScheduler {
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.options = null;
+    this.arpStepOffset = 0;
   }
 
   /**
@@ -102,7 +105,11 @@ export class ArpScheduler {
       const rootMidi = getRoot();
       const settings = getSettings();
       const scaleName = getScaleName();
-      const notes = generateArpNotes(rootMidi, stepDuration, settings, scaleName, rootMidi);
+      const notes = generateArpNotes(
+        rootMidi, stepDuration, settings, scaleName, rootMidi, 0.85, [], this.arpStepOffset,
+      );
+      const rateDiv = ARP_RATES[settings.rate] ?? 0.5;
+      this.arpStepOffset += Math.max(1, Math.floor(1 / rateDiv));
 
       const stepStart = this.nextStepTime;
       for (const n of notes) {

@@ -23,89 +23,16 @@ import {
   STYLE_DEFAULTS,
 } from "../audio/MelodyGeneratorEngine";
 import {
-  _persistedNotes,
-  updatePersistedNotes,
-} from "./PianoRoll/persistedState";
-import type { PianoRollNote } from "./PianoRoll/types";
+  pianoRollNotesToBassSteps,
+  pianoRollNotesToChordsSteps,
+  pianoRollNotesToMelodySteps,
+} from "./PianoRoll/sequencerSync";
 import { useOverlayStore } from "../store/overlayStore";
 import { useDrumStore } from "../store/drumStore";
 import { useBassStore } from "../store/bassStore";
 import { useChordsStore } from "../store/chordsStore";
 import { useMelodyStore } from "../store/melodyStore";
-import { DEFAULT_BASS_PARAMS, type BassStep } from "../audio/BassEngine";
-import { DEFAULT_CHORDS_PARAMS, type ChordsStep } from "../audio/ChordsEngine";
-import { DEFAULT_MELODY_PARAMS, type MelodyStep } from "../audio/MelodyEngine";
-
-// ─── Step conversion helpers ─────────────────────────────────────────────────
-
-function pianoRollNotesToBassSteps(notes: PianoRollNote[], bars: number): BassStep[] {
-  const stepCount = bars * 16;
-  const grid: BassStep[] = Array.from({ length: stepCount }, () => ({
-    active: false, note: 0, octave: 0, accent: false, slide: false, tie: false,
-  }));
-  for (const n of notes.filter(n => n.track === "bass")) {
-    const i = Math.round(n.start * 4);
-    if (i >= 0 && i < stepCount) {
-      const gl = Math.max(1, Math.round(n.duration * 4));
-      grid[i] = {
-        active: true, note: n.midi, octave: 0,
-        accent: n.velocity > 0.85, velocity: n.velocity,
-        slide: false, tie: gl > 1, gateLength: gl,
-      };
-    }
-  }
-  return grid;
-}
-
-function pianoRollNotesToChordsSteps(
-  notes: PianoRollNote[], bars: number, mode: GenMode,
-): ChordsStep[] {
-  const stepCount = bars * 16;
-  const grid: ChordsStep[] = Array.from({ length: stepCount }, () => ({
-    active: false, note: 0, chordType: "min7" as const, octave: 0, accent: false, tie: false,
-  }));
-  const defaultChordType = (["major", "mixolydian"] as GenMode[]).includes(mode)
-    ? ("maj7" as const)
-    : ("min7" as const);
-  // Group by step index — lowest note becomes root
-  const groups = new Map<number, PianoRollNote[]>();
-  for (const n of notes.filter(n => n.track === "chords")) {
-    const i = Math.round(n.start * 4);
-    if (!groups.has(i)) groups.set(i, []);
-    groups.get(i)!.push(n);
-  }
-  for (const [i, stepNotes] of groups) {
-    if (i >= 0 && i < stepCount) {
-      const root = [...stepNotes].sort((a, b) => a.midi - b.midi)[0]!;
-      const gl = Math.max(1, Math.round(root.duration * 4));
-      grid[i] = {
-        active: true, note: root.midi, chordType: defaultChordType, octave: 0,
-        accent: root.velocity > 0.85, velocity: root.velocity,
-        tie: gl > 1, gateLength: gl,
-      };
-    }
-  }
-  return grid;
-}
-
-function pianoRollNotesToMelodySteps(notes: PianoRollNote[], bars: number): MelodyStep[] {
-  const stepCount = bars * 16;
-  const grid: MelodyStep[] = Array.from({ length: stepCount }, () => ({
-    active: false, note: 0, octave: 0, accent: false, slide: false, tie: false,
-  }));
-  for (const n of notes.filter(n => n.track === "melody")) {
-    const i = Math.round(n.start * 4);
-    if (i >= 0 && i < stepCount) {
-      const gl = Math.max(1, Math.round(n.duration * 4));
-      grid[i] = {
-        active: true, note: n.midi, octave: 0,
-        accent: n.velocity > 0.85, velocity: n.velocity,
-        slide: false, tie: gl > 1, gateLength: gl,
-      };
-    }
-  }
-  return grid;
-}
+import { updatePersistedNotes, _persistedNotes } from "./PianoRoll/persistedState";
 
 interface Props {
   isOpen: boolean;
@@ -308,7 +235,7 @@ export function MelodyGenerator({ isOpen, onClose }: Props) {
    * Drums fall back to Piano Roll (step-grid conversion not feasible).
    */
   const loadToSequencer = useCallback((pattern: GeneratedPattern) => {
-    const { notes, params: { bars, mode, role } } = pattern;
+    const { notes, params: { bars, role } } = pattern;
     const stepCount = bars * 16;
 
     // Always keep Piano Roll state in sync so user can open it for fine-tuning
@@ -316,27 +243,30 @@ export function MelodyGenerator({ isOpen, onClose }: Props) {
     window.dispatchEvent(new CustomEvent("piano-roll-notes-imported"));
 
     if (role === "bass") {
-      const steps = pianoRollNotesToBassSteps(notes, bars).slice(0, stepCount);
+      const s = useBassStore.getState();
+      const steps = pianoRollNotesToBassSteps(notes, stepCount, s.rootNote, s.scaleName, s.globalOctave);
       useBassStore.getState().loadBassPattern({
         steps, length: stepCount,
-        params: { ...DEFAULT_BASS_PARAMS },
-        rootNote: 0, rootName: "C", scaleName: "Chromatic",
+        params: s.params,
+        rootNote: s.rootNote, rootName: s.rootName, scaleName: s.scaleName,
       });
       window.dispatchEvent(new CustomEvent("synth-tab-switch", { detail: { tab: "bass" } }));
     } else if (role === "chords") {
-      const steps = pianoRollNotesToChordsSteps(notes, bars, mode).slice(0, stepCount);
+      const s = useChordsStore.getState();
+      const steps = pianoRollNotesToChordsSteps(notes, stepCount, s.rootNote, s.scaleName, s.globalOctave);
       useChordsStore.getState().loadChordsPattern({
         steps, length: stepCount,
-        params: { ...DEFAULT_CHORDS_PARAMS },
-        rootNote: 0, rootName: "C", scaleName: "Chromatic",
+        params: s.params,
+        rootNote: s.rootNote, rootName: s.rootName, scaleName: s.scaleName,
       });
       window.dispatchEvent(new CustomEvent("synth-tab-switch", { detail: { tab: "chords" } }));
     } else if (role === "melody" || role === "arp") {
-      const steps = pianoRollNotesToMelodySteps(notes, bars).slice(0, stepCount);
+      const s = useMelodyStore.getState();
+      const steps = pianoRollNotesToMelodySteps(notes, stepCount, s.rootNote, s.scaleName, s.globalOctave);
       useMelodyStore.getState().loadMelodyPattern({
         steps, length: stepCount,
-        params: { ...DEFAULT_MELODY_PARAMS },
-        rootNote: 0, rootName: "C", scaleName: "Chromatic",
+        params: s.params,
+        rootNote: s.rootNote, rootName: s.rootName, scaleName: s.scaleName,
       });
       window.dispatchEvent(new CustomEvent("synth-tab-switch", { detail: { tab: "melody" } }));
     } else {

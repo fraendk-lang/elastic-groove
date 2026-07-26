@@ -61,7 +61,8 @@ import { useMelodyStore, startMelodyScheduler, stopMelodyScheduler } from "./sto
 import { startSamplerScheduler, stopSamplerScheduler } from "./store/samplerStore";
 import { useSceneStore } from "./store/sceneStore";
 import { useArrangementStore } from "./store/arrangementStore";
-import { useMixerBarStore } from "./store/mixerBarStore";
+import { useMixerBarStore, normalizeMixerChannels } from "./store/mixerBarStore";
+import { syncMixerToEngine } from "./audio/syncMixerToEngine";
 import { usePerformancePadStore } from "./store/performancePadStore";
 import { useMelodyLayerStore } from "./store/melodyLayerStore";
 import { useClipStore } from "./store/clipStore";
@@ -240,7 +241,7 @@ export function App() {
       const mix = (data as { mixerState?: Record<string, unknown> }).mixerState;
       if (mix && Array.isArray(mix.channels)) {
         useMixerBarStore.setState({
-          channels: mix.channels as never,
+          channels: normalizeMixerChannels(mix.channels as never),
           ...(mix.groupBuses ? { groupBuses: mix.groupBuses as never } : {}),
         });
       }
@@ -515,6 +516,21 @@ export function App() {
       );
     }
   }, []);
+
+  // Single path: mixerBarStore → Web Audio (fader, mute, solo, pan, sends, EQ, group buses)
+  useEffect(() => {
+    if (!audioReady) return;
+    const runSync = () => {
+      const { channels, groupBuses } = useMixerBarStore.getState();
+      syncMixerToEngine(channels, groupBuses);
+    };
+    runSync();
+    return useMixerBarStore.subscribe((state, prev) => {
+      if (state.channels !== prev.channels || state.groupBuses !== prev.groupBuses) {
+        runSync();
+      }
+    });
+  }, [audioReady]);
 
   // Sync all synth schedulers with drum transport
   useEffect(() => {

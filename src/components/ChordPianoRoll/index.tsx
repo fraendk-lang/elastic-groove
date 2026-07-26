@@ -3,7 +3,7 @@
 import {
   useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, memo,
 } from "react";
-import { useChordPianoStore } from "../../store/chordPianoStore";
+import { useChordPianoStore, applyGroupMoveFromSnapshot, applyGroupResizeFromSnapshot } from "../../store/chordPianoStore";
 import { useChordsStore } from "../../store/chordsStore";
 import { useDrumStore } from "../../store/drumStore";
 import { drumCurrentStepStore, getDrumCurrentStep } from "../../store/drumStore";
@@ -96,7 +96,7 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
   const {
     notes, activeChordSet, snapEnabled, snapResolution, totalBeats, chordsSource,
     addNotes, removeGroup, setActiveChordSet, setSnapEnabled, setSnapResolution,
-    setChordsSource, setTotalBeats, clear,
+    setChordsSource, setTotalBeats, clear, pushUndo, undo, redo, setNotes,
   } = useChordPianoStore();
 
   const rootNote = useChordsStore((s) => s.rootNote);
@@ -116,9 +116,19 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [pixelsPerBeat, setPixelsPerBeat] = useState(60);
   const [hoverCell, setHoverCell] = useState<{ beat: number; pitch: number } | null>(null);
+  const [dragMode, setDragMode] = useState<"none" | "move" | "resize">("none");
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const keysScrollRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    mode: "move" | "resize";
+    group: string;
+    startX: number;
+    startY: number;
+    snapshot: ChordNote[];
+  } | null>(null);
 
   // ── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -142,6 +152,13 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
             setSelectedGroup(null);
           }
           break;
+        case "z": case "Z":
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault();
+            if (e.shiftKey) redo();
+            else undo();
+          }
+          break;
         case "a": case "A":
           if (e.metaKey || e.ctrlKey) {
             e.preventDefault();
@@ -152,7 +169,29 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, selectedGroup, removeGroup, onClose, notes]);
+  }, [isOpen, selectedGroup, removeGroup, onClose, notes, undo, redo]);
+
+  // ── Scroll sync: piano keys follow grid vertical scroll ─────────────────────
+  const handleScrollSync = useCallback(() => {
+    const grid = scrollRef.current;
+    const keys = keysScrollRef.current;
+    if (grid && keys) keys.scrollTop = grid.scrollTop;
+  }, []);
+
+  // ── End drag on pointer up anywhere ─────────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen) return;
+    const endDrag = () => {
+      dragRef.current = null;
+      setDragMode("none");
+    };
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+    return () => {
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", endDrag);
+    };
+  }, [isOpen]);
 
   // ── Ctrl+Scroll zoom ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -203,7 +242,19 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
     [hitTestGroup, removeGroup, selectedGroup],
   );
 
-  // ── Grid click — place chord ────────────────────────────────────────────────
+  // ── Group bounds for hit-testing / resize zone ──────────────────────────────
+  const getGroupNotes = useCallback(
+    (group: string) => notes.filter((n) => n.chordGroup === group),
+    [notes],
+  );
+
+  const getGroupEndX = useCallback(
+    (groupNotes: ChordNote[]) =>
+      Math.max(...groupNotes.map((n) => (n.startBeat + n.durationBeats) * pixelsPerBeat)),
+    [pixelsPerBeat],
+  );
+
+  // ── Grid pointer — place, select, move, resize ─────────────────────────────
   const handleGridPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
@@ -219,7 +270,22 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
       const hitGroup = hitTestGroup(x, y);
 
       if (hitGroup) {
-        setSelectedGroup(hitGroup === selectedGroup ? null : hitGroup);
+        setSelectedGroup(hitGroup);
+        const groupNotes = getGroupNotes(hitGroup);
+        if (groupNotes.length === 0) return;
+
+        const endX = getGroupEndX(groupNotes);
+        const isResize = x >= endX - 10;
+        pushUndo();
+        dragRef.current = {
+          mode: isResize ? "resize" : "move",
+          group: hitGroup,
+          startX: x,
+          startY: y,
+          snapshot: structuredClone(groupNotes),
+        };
+        setDragMode(isResize ? "resize" : "move");
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* no-op */ }
         return;
       }
 
@@ -244,29 +310,58 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
       setSelectedGroup(newNotes[0]?.chordGroup ?? null);
     },
     [
-      notes, tool, snapEnabled, snapBeat, pixelsPerBeat, rootNote, scaleName,
-      activeChordSet, snapResolution, selectedGroup, addNotes, hitTestGroup,
+      tool, snapEnabled, snapBeat, pixelsPerBeat, rootNote, scaleName,
+      activeChordSet, snapResolution, addNotes, hitTestGroup, getGroupNotes,
+      getGroupEndX, pushUndo,
     ],
   );
 
-  // ── Hover ghost preview ─────────────────────────────────────────────────────
-  const handleGridMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (tool !== "draw") { setHoverCell(null); return; }
+  const handleGridPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+
+      const drag = dragRef.current;
+      if (drag) {
+        e.preventDefault();
+        if (drag.mode === "move") {
+          const deltaBeat = snapEnabled
+            ? Math.round(((x - drag.startX) / pixelsPerBeat) / snapResolution) * snapResolution
+            : (x - drag.startX) / pixelsPerBeat;
+          const deltaPitch = -Math.round((y - drag.startY) / ROW_H);
+          if (deltaBeat !== 0 || deltaPitch !== 0) {
+            setNotes(applyGroupMoveFromSnapshot(
+              drag.snapshot, deltaBeat, deltaPitch, totalBeats, MIDI_MIN, MIDI_MAX - 1,
+            ));
+          }
+        } else {
+          const groupStart = Math.min(...drag.snapshot.map((n) => n.startBeat));
+          let endBeat = x / pixelsPerBeat;
+          if (snapEnabled) endBeat = snapBeat(endBeat) + snapResolution;
+          const newDur = Math.max(snapResolution, endBeat - groupStart);
+          setNotes(applyGroupResizeFromSnapshot(drag.snapshot, newDur));
+        }
+        return;
+      }
+
+      // Ghost preview (draw mode) — pointer works on touch + mouse
+      if (tool !== "draw") { setHoverCell(null); return; }
       const beat = snapBeat(x / pixelsPerBeat);
       const pitch = MIDI_MAX - 1 - Math.floor(y / ROW_H);
-      // Hide ghost when hovering over an existing note (prevents visual confusion)
       if (pitch >= MIDI_MIN && pitch < MIDI_MAX && !hitTestGroup(x, y)) {
         setHoverCell({ beat, pitch });
       } else {
         setHoverCell(null);
       }
     },
-    [tool, snapBeat, pixelsPerBeat, hitTestGroup],
+    [tool, snapBeat, pixelsPerBeat, hitTestGroup, snapEnabled, snapResolution, setNotes, totalBeats],
   );
+
+  const handleGridPointerUp = useCallback(() => {
+    dragRef.current = null;
+    setDragMode("none");
+  }, []);
 
   // ── Ghost preview note computation ──────────────────────────────────────────
   const ghostNotes: ChordNote[] = useMemo(() => {
@@ -392,7 +487,7 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
         })}
 
         <div className="flex-1" />
-        <span className="hidden lg:inline text-[7px] text-white/15">Ctrl+Scroll = zoom</span>
+        <span className="hidden lg:inline text-[7px] text-white/15">Drag chord · edge=resize · Ctrl+Z undo</span>
         <div className="w-px h-4 bg-white/8" />
 
         <button onClick={clear}
@@ -430,7 +525,11 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
 
         {/* Piano keys — left column */}
         <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: PIANO_W, paddingTop: RULER_H }}>
-          <div className="overflow-y-auto flex-1">
+          <div
+            ref={keysScrollRef}
+            className="overflow-y-auto flex-1"
+            style={{ scrollbarWidth: "none", pointerEvents: "none" }}
+          >
             {Array.from({ length: ROWS }, (_, i) => {
               const pitch = MIDI_MAX - 1 - i;
               return (
@@ -441,7 +540,7 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
         </div>
 
         {/* Scrollable grid */}
-        <div className="flex-1 min-w-0 overflow-auto">
+        <div ref={scrollRef} className="flex-1 min-w-0 overflow-auto" onScroll={handleScrollSync}>
           <div style={{ width: gridWidth, minWidth: gridWidth }}>
 
             {/* Ruler */}
@@ -492,12 +591,18 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
             {/* Note grid */}
             <div
               ref={gridRef}
-              className="relative cursor-crosshair"
-              style={{ width: gridWidth, height: gridHeight }}
+              className="relative"
+              style={{
+                width: gridWidth,
+                height: gridHeight,
+                cursor: dragMode === "move" ? "grabbing" : dragMode === "resize" ? "ew-resize" : tool === "draw" ? "crosshair" : "default",
+                touchAction: "none",
+              }}
               onPointerDown={handleGridPointerDown}
+              onPointerMove={handleGridPointerMove}
+              onPointerUp={handleGridPointerUp}
               onContextMenu={handleGridContextMenu}
-              onMouseMove={handleGridMouseMove}
-              onMouseLeave={() => setHoverCell(null)}
+              onPointerLeave={() => { if (!dragRef.current) setHoverCell(null); }}
             >
               {/* Pitch rows */}
               {Array.from({ length: ROWS }, (_, i) => {
@@ -539,24 +644,35 @@ export function ChordPianoRoll({ isOpen, onClose }: ChordPianoRollProps) {
                 }} />
               )}
 
-              {/* Note blocks */}
+              {/* Note blocks — interactive (move / resize via grid pointer handlers) */}
               {notes.map((n) => {
                 const x = n.startBeat * pixelsPerBeat;
                 const y = (MIDI_MAX - 1 - n.pitch) * ROW_H;
                 const w = Math.max(2, n.durationBeats * pixelsPerBeat - 1);
                 const color = groupColor(n.chordGroup);
                 const isSelected = selectedGroup === n.chordGroup;
+                const isLowestInGroup = !notes.some(
+                  (o) => o.chordGroup === n.chordGroup && o.pitch < n.pitch,
+                );
                 return (
                   <div
                     key={n.id}
-                    className="absolute rounded-sm pointer-events-none"
+                    className="absolute rounded-sm"
                     style={{
                       left: x, top: y, width: w, height: ROW_H - 1,
                       background: color,
                       opacity: isSelected ? 1 : 0.7,
                       boxShadow: isSelected ? `0 0 0 1px ${color}, 0 0 8px ${color}66` : "none",
+                      pointerEvents: "none",
                     }}
-                  />
+                  >
+                    {isSelected && isLowestInGroup && (
+                      <div
+                        className="absolute top-0 bottom-0 right-0 w-2 cursor-ew-resize"
+                        style={{ background: "rgba(255,255,255,0.35)", borderRadius: "0 2px 2px 0" }}
+                      />
+                    )}
+                  </div>
                 );
               })}
 

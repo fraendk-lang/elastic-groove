@@ -12,7 +12,7 @@ import { useDrumStore } from "../store/drumStore";
 import { useBassStore } from "../store/bassStore";
 import { useChordsStore } from "../store/chordsStore";
 import { useMelodyStore } from "../store/melodyStore";
-import { useMixerBarStore } from "../store/mixerBarStore";
+import { useMixerBarStore, normalizeMixerChannels } from "../store/mixerBarStore";
 import { audioEngine } from "../audio/AudioEngine";
 import {
   _persistedNotes,
@@ -182,7 +182,7 @@ export function restoreFullState(stored: StoredPattern): void {
   if (stored.mixer) {
     const update: Partial<ReturnType<typeof useMixerBarStore.getState>> = {};
     if (stored.mixer.channels) {
-      update.channels = stored.mixer.channels as any;
+      update.channels = normalizeMixerChannels(stored.mixer.channels as never);
     }
     if (stored.mixer.groupBuses) {
       update.groupBuses = stored.mixer.groupBuses as any;

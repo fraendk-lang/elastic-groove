@@ -1,6 +1,13 @@
 import { type SoundTarget, type LoopRange, TARGET_COLORS, DEFAULT_CELL_W } from "./types";
 import { HarmonyMenu } from "./HarmonyMenu";
 import type { HarmonyType } from "./harmony";
+import {
+  type SnapMode,
+  GRID_PRESETS,
+  formatGridLabel,
+  cycleSnapMode,
+  snapModeLabel,
+} from "./gridSnap";
 
 interface PianoRollToolbarProps {
   target: SoundTarget;
@@ -9,8 +16,8 @@ interface PianoRollToolbarProps {
   setTool: (t: "draw" | "select") => void;
   gridRes: number;
   setGridRes: (r: number) => void;
-  snap: boolean;
-  setSnap: (b: boolean) => void;
+  snapMode: SnapMode;
+  setSnapMode: (m: SnapMode) => void;
   scaleSnap: boolean;
   setScaleSnap: (b: boolean) => void;
   loop: LoopRange;
@@ -46,8 +53,11 @@ interface PianoRollToolbarProps {
   onCopy: () => void;
   onPaste: () => void;
   onClear: () => void;
+  onPullFromSequencer: () => void;
+  onApplyToSequencer: () => void;
   onFit: () => void;
   onClose: () => void;
+  syncHint?: string | null;
 }
 
 export function PianoRollToolbar(props: PianoRollToolbarProps) {
@@ -58,8 +68,8 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
     setTool,
     gridRes,
     setGridRes,
-    snap,
-    setSnap,
+    snapMode,
+    setSnapMode,
     scaleSnap,
     setScaleSnap,
     loop,
@@ -93,8 +103,11 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
     onCopy,
     onPaste,
     onClear,
+    onPullFromSequencer,
+    onApplyToSequencer,
     onFit,
     onClose,
+    syncHint,
   } = props;
 
   const accentColor = TARGET_COLORS[target];
@@ -121,7 +134,7 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
             <button
               key={t}
               onClick={() => setTool(t)}
-              title={t === "draw" ? "Draw (B)" : "Select (S)"}
+              title={t === "draw" ? "Draw — click grid to place (B)" : "Select — drag to select (S)"}
               className="px-2 py-0.5 text-[7px] font-bold tracking-wider rounded-sm transition-all hover:brightness-110"
               style={{
                 backgroundColor: tool === t ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.05)",
@@ -165,26 +178,38 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
             onChange={(e) => setGridRes(parseFloat(e.target.value))}
             className="h-6 px-1.5 text-[8px] bg-black/30 border border-white/15 rounded text-white/70 cursor-pointer hover:border-white/25 transition-colors"
           >
-            <option value={0.125}>1/32</option>
-            <option value={0.25}>1/16</option>
-            <option value={0.5}>1/8</option>
-            <option value={1}>1/4</option>
+            <optgroup label="Straight">
+              {GRID_PRESETS.filter((p) => p.group === "straight").map((p) => (
+                <option key={p.label} value={p.beats}>{p.label}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Triplets">
+              {GRID_PRESETS.filter((p) => p.group === "triplet").map((p) => (
+                <option key={p.label} value={p.beats}>{p.label}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Dotted">
+              {GRID_PRESETS.filter((p) => p.group === "dotted").map((p) => (
+                <option key={p.label} value={p.beats}>{p.label}</option>
+              ))}
+            </optgroup>
           </select>
         </div>
 
-        {/* Snap */}
+        {/* Snap — cycles hard → soft → off */}
         <button
-          onClick={() => setSnap(!snap)}
+          onClick={() => setSnapMode(cycleSnapMode(snapMode))}
+          title="Snap mode: Hard → Soft → Off"
           className="px-2 py-0.5 text-[7px] font-bold tracking-wider rounded transition-all shrink-0 hover:brightness-110"
           style={{
-            backgroundColor: snap ? TARGET_COLORS[target] : "rgba(255,255,255,0.05)",
-            color: snap ? "#000" : "white",
-            opacity: snap ? 1 : 0.4,
-            border: `1px solid ${snap ? TARGET_COLORS[target] : "rgba(255,255,255,0.15)"}`,
-            boxShadow: snap ? `0 0 6px ${TARGET_COLORS[target]}30` : "none",
+            backgroundColor: snapMode !== "off" ? TARGET_COLORS[target] : "rgba(255,255,255,0.05)",
+            color: snapMode !== "off" ? "#000" : "white",
+            opacity: snapMode !== "off" ? 1 : 0.4,
+            border: `1px solid ${snapMode !== "off" ? TARGET_COLORS[target] : "rgba(255,255,255,0.15)"}`,
+            boxShadow: snapMode !== "off" ? `0 0 6px ${TARGET_COLORS[target]}30` : "none",
           }}
         >
-          SNAP
+          SNAP {snapModeLabel(snapMode)}
         </button>
 
         {/* Scale snap */}
@@ -480,6 +505,34 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
           CLEAR
         </button>
 
+        <div className="w-px h-4 bg-white/10 shrink-0" />
+
+        <button
+          onClick={onPullFromSequencer}
+          className="px-2 py-0.5 text-[7px] font-bold tracking-wider rounded transition-all shrink-0 hover:brightness-110"
+          style={{
+            backgroundColor: "rgba(80,140,255,0.15)",
+            color: "rgba(180,210,255,0.85)",
+            border: "1px solid rgba(80,140,255,0.35)",
+          }}
+          title="Load bass/chords/melody from step sequencers into Piano Roll"
+        >
+          ↻ LOAD
+        </button>
+
+        <button
+          onClick={onApplyToSequencer}
+          className="px-2 py-0.5 text-[7px] font-bold tracking-wider rounded transition-all shrink-0 hover:brightness-110"
+          style={{
+            backgroundColor: "rgba(244,114,182,0.15)",
+            color: "rgba(255,200,230,0.9)",
+            border: "1px solid rgba(244,114,182,0.35)",
+          }}
+          title="Apply Piano Roll edits to step sequencers (also runs on close)"
+        >
+          → SEQ
+        </button>
+
         <div className="flex-1" />
 
         <div className="flex items-center gap-2 text-[7px] text-white/35 shrink-0 font-mono">
@@ -502,6 +555,11 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
 
       {/* ─── CHIP ROW ──────────────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--ed-border)]/60 bg-[var(--ed-bg-secondary)]/35 overflow-x-auto">
+        {syncHint && (
+          <span className="px-2.5 py-1 rounded-full text-[9px] font-bold tracking-[0.12em] border border-emerald-400/40 bg-emerald-400/15 text-emerald-200 shrink-0">
+            {syncHint}
+          </span>
+        )}
         <span className="px-2.5 py-1 rounded-full text-[9px] font-bold tracking-[0.14em] border border-white/8 bg-white/5 text-[var(--ed-text-secondary)] shrink-0">
           Lane {target.toUpperCase()}
         </span>
@@ -515,7 +573,10 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
           Playhead {playheadBeat.toFixed(2)} beats
         </span>
         <span className="px-2.5 py-1 rounded-full text-[9px] font-bold tracking-[0.14em] border border-white/8 bg-white/5 text-[var(--ed-text-secondary)] shrink-0">
-          Grid {gridRes === 0.125 ? "1/32" : gridRes === 0.25 ? "1/16" : gridRes === 0.5 ? "1/8" : "1/4"}
+          Grid {formatGridLabel(gridRes)}
+        </span>
+        <span className="px-2.5 py-1 rounded-full text-[9px] font-bold tracking-[0.14em] border border-white/8 bg-white/5 text-[var(--ed-text-secondary)] shrink-0">
+          Snap {snapModeLabel(snapMode)}
         </span>
         {loop.enabled && (
           <span

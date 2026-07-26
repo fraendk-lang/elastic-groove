@@ -1,13 +1,13 @@
 // src/store/mixerBarStore.ts
 /**
- * Mixer Bar Store — persistent channel state for the permanent MixerBar.
- * 16 channels (0-11: drums, 12: bass, 13: chords, 14: lead, 15: sampler).
- * State persists within the session (not in IndexedDB).
+ * Mixer Bar Store — persistent channel state for MixerBar + MixerPanel.
+ * 28 channels (0-11 drums/hats/perc, 12-15 synths, 16-23 loops, 24-26 layers, 27 audio).
+ * State persists via autosave / scenes (fader, pan, EQ, sends, mute, solo).
  */
 
 import { create } from "zustand";
 
-export const NUM_MIXER_CHANNELS = 28; // 0-15 original + 16-23 LP 1–8 + 24-26 LAY 1–3 + 27 AUDIO
+export const NUM_MIXER_CHANNELS = 28;
 
 /** Fader position 0-1000 (750 = 0dB unity) */
 export type FaderPos = number;
@@ -17,11 +17,14 @@ export interface ChannelMixState {
   muted:   boolean;
   soloed:  boolean;
   pan:     number;     // -1 to +1
+  eqOn:    boolean;
   eqLo:    number;     // -12 to +12 dB
   eqMid:   number;     // -12 to +12 dB
   eqHi:    number;     // -12 to +12 dB
   sendRev: number;     // 0-100
   sendDly: number;     // 0-100
+  sendCh:  number;     // 0-100 chorus
+  sendPh:  number;     // 0-100 phaser
 }
 
 export const GROUP_BUS_IDS = [
@@ -34,53 +37,87 @@ export interface GroupBusState {
   muted: boolean;
 }
 
-/**
- * Balanced default faders per channel (0-1000, 750 = 0dB unity).
- * Drums and bass sit louder in the mix by nature (high RMS, low-frequency
- * energy perceived as louder) — pull them down ~2-4 dB from the start.
- * Hats are bright and cut through even at lower levels.
- * Chords/Melody bumped slightly — now that filter cutoffs are open they
- * have more harmonic content and benefit from a touch more level.
- *
- * Channel map:
- *   0-5  : drums  (kick at 0 is the biggest transient → 620)
- *   6-9  : hats   (naturally bright → 580)
- *   10-11: perc   (short transients → 630)
- *   12   : bass   (sub energy → 620)
- *   13   : chords (660 — open filter = richer, needs presence)
- *   14   : melody/lead (670)
- *   15   : sampler (700)
- */
 const BALANCED_FADERS: readonly number[] = [
   620, 640, 640, 640, 640, 640,  // 0-5: drums (ch0=kick loudest)
   580, 580, 580, 580,             // 6-9: hats
   630, 630,                       // 10-11: perc
-  620,                            // 12: bass (pull back slightly; 303 resonance adds perceived loudness)
-  660,                            // 13: chords (up from 640 — open pad needs presence)
-  670,                            // 14: melody/lead (up from 660)
+  620,                            // 12: bass
+  660,                            // 13: chords
+  670,                            // 14: melody/lead
   700,                            // 15: sampler
-  // 16-23: LP 1–8 (no entry → defaultChannel fallback 700)
-  // 24-26: LAY 1–3 (melody layers, same presence as lead)
   ...new Array(8).fill(700),      // 16-23: LP 1–8
   670, 660, 650,                  // 24-26: LAY 1–3
+  700,                            // 27: audio clips
 ];
 
-const defaultChannel = (ch = 0): ChannelMixState => ({
-  fader: BALANCED_FADERS[ch] ?? 700, muted: false, soloed: false,
-  pan: 0, eqLo: 0, eqMid: 0, eqHi: 0,
-  sendRev: 0, sendDly: 0,
-});
+/** Per-channel default sends — subtle wet on musical buses so FX pads respond. */
+const DEFAULT_SENDS: ReadonlyArray<Partial<Pick<ChannelMixState, "sendRev" | "sendDly">>> = [
+  ...Array(13).fill({ sendRev: 0, sendDly: 0 }),
+  { sendRev: 12, sendDly: 6 },   // 13 chords
+  { sendRev: 18, sendDly: 8 },   // 14 melody
+  { sendRev: 8, sendDly: 4 },     // 15 sampler
+  ...Array(8).fill({ sendRev: 0, sendDly: 0 }),
+  { sendRev: 14, sendDly: 6 },   // 24 LAY1
+  { sendRev: 12, sendDly: 5 },   // 25 LAY2
+  { sendRev: 10, sendDly: 4 },   // 26 LAY3
+  { sendRev: 6, sendDly: 0 },    // 27 audio
+];
+
+const defaultChannel = (ch = 0): ChannelMixState => {
+  const sends = DEFAULT_SENDS[ch] ?? {};
+  return {
+    fader: BALANCED_FADERS[ch] ?? 700,
+    muted: false,
+    soloed: false,
+    pan: 0,
+    eqOn: false,
+    eqLo: 0,
+    eqMid: 0,
+    eqHi: 0,
+    sendRev: sends.sendRev ?? 0,
+    sendDly: sends.sendDly ?? 0,
+    sendCh: 0,
+    sendPh: 0,
+  };
+};
+
+/** Merge persisted channel rows (may lack newer fields) onto defaults. */
+export function normalizeChannelMixState(raw: Partial<ChannelMixState> | undefined, index: number): ChannelMixState {
+  const base = defaultChannel(index);
+  if (!raw) return base;
+  return {
+    fader: raw.fader ?? base.fader,
+    muted: raw.muted ?? base.muted,
+    soloed: raw.soloed ?? base.soloed,
+    pan: raw.pan ?? base.pan,
+    eqOn: raw.eqOn ?? base.eqOn,
+    eqLo: raw.eqLo ?? base.eqLo,
+    eqMid: raw.eqMid ?? base.eqMid,
+    eqHi: raw.eqHi ?? base.eqHi,
+    sendRev: raw.sendRev ?? base.sendRev,
+    sendDly: raw.sendDly ?? base.sendDly,
+    sendCh: raw.sendCh ?? base.sendCh,
+    sendPh: raw.sendPh ?? base.sendPh,
+  };
+}
+
+export function normalizeMixerChannels(raw: Partial<ChannelMixState>[] | undefined): ChannelMixState[] {
+  return Array.from({ length: NUM_MIXER_CHANNELS }, (_, i) => normalizeChannelMixState(raw?.[i], i));
+}
 
 interface MixerBarState {
   channels: ChannelMixState[];
-  expandedChannel: number | null;  // which channel strip is expanded
+  expandedChannel: number | null;
   setFader:   (ch: number, val: FaderPos) => void;
   setMute:    (ch: number, muted: boolean) => void;
   setSolo:    (ch: number, soloed: boolean) => void;
   setPan:     (ch: number, pan: number) => void;
   setEQ:      (ch: number, band: "lo" | "mid" | "hi", gain: number) => void;
+  setEqOn:    (ch: number, on: boolean) => void;
   setSendRev: (ch: number, val: number) => void;
   setSendDly: (ch: number, val: number) => void;
+  setSendCh:  (ch: number, val: number) => void;
+  setSendPh:  (ch: number, val: number) => void;
   setExpanded:(ch: number | null) => void;
   groupBuses:    Record<GroupBusId, GroupBusState>;
   setGroupFader: (group: GroupBusId, fader: number) => void;
@@ -114,11 +151,20 @@ export const useMixerBarStore = create<MixerBarState>((set) => ({
       return { channels: c };
     }),
 
+  setEqOn: (ch, on) =>
+    set((s) => { const c = [...s.channels]; c[ch] = { ...c[ch]!, eqOn: on }; return { channels: c }; }),
+
   setSendRev: (ch, val) =>
     set((s) => { const c = [...s.channels]; c[ch] = { ...c[ch]!, sendRev: val }; return { channels: c }; }),
 
   setSendDly: (ch, val) =>
     set((s) => { const c = [...s.channels]; c[ch] = { ...c[ch]!, sendDly: val }; return { channels: c }; }),
+
+  setSendCh: (ch, val) =>
+    set((s) => { const c = [...s.channels]; c[ch] = { ...c[ch]!, sendCh: val }; return { channels: c }; }),
+
+  setSendPh: (ch, val) =>
+    set((s) => { const c = [...s.channels]; c[ch] = { ...c[ch]!, sendPh: val }; return { channels: c }; }),
 
   setExpanded: (ch) => set({ expandedChannel: ch }),
 
@@ -137,7 +183,6 @@ export const useMixerBarStore = create<MixerBarState>((set) => ({
 export function faderToGain(pos: number): number {
   const p = pos / 1000;
   if (p <= 0) return 0;
-  // S-curve: unity at 0.75
   const x = p / 0.75;
   return x < 1 ? x * x * x * 0.5 + 0.5 * x : 1 + (x - 1) * 1.5;
 }
