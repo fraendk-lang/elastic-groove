@@ -4,7 +4,8 @@ import { SCALES } from "../../audio/BassEngine";
    TYPES
    ═════════════════════════════════════════════════════════════════════════ */
 
-export type SoundTarget = "bass" | "chords" | "melody" | "drums";
+export type MelodyLayerTrack = "melodyLayer0" | "melodyLayer1" | "melodyLayer2";
+export type SoundTarget = "bass" | "chords" | "melody" | "drums" | MelodyLayerTrack;
 
 export interface PianoRollNote {
   id: string;
@@ -63,6 +64,9 @@ export const TARGET_COLORS: Record<SoundTarget, string> = {
   chords: "var(--ed-accent-chords, #a78bfa)",
   melody: "var(--ed-accent-melody, #f472b6)",
   drums: "var(--ed-accent-orange, #f59e0b)",
+  melodyLayer0: "#f472b6",
+  melodyLayer1: "#22c55e",
+  melodyLayer2: "#a78bfa",
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════

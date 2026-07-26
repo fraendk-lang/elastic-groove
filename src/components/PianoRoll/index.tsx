@@ -33,12 +33,12 @@ import { PianoRollKeys } from "./PianoRollKeys";
 import { PianoRollRuler } from "./PianoRollRuler";
 import { PianoRollToolbar } from "./PianoRollToolbar";
 import {
-  applyPianoRollToSequencers,
-  applyPianoRollTrackToSequencer,
-  isSequencerTrack,
-  pullSequencersToPianoRoll,
-  pullTrackFromSequencer,
-} from "./sequencerSync";
+  applyAllFromPianoRoll,
+  applyPianoRollTrack,
+  isMidiSyncTarget,
+  pullAllToPianoRoll,
+  pullTrackToPianoRoll,
+} from "./midiSurfaceSync";
 import {
   type SnapMode,
   snapBeatValue,
@@ -234,7 +234,7 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
     }
     if (openSyncedRef.current) return;
     openSyncedRef.current = true;
-    setNotes((prev) => pullSequencersToPianoRoll(prev));
+    setNotes((prev) => pullAllToPianoRoll(prev));
     undoStackRef.current = [];
     redoStackRef.current = [];
     setSelectedNoteIds(new Set());
@@ -248,30 +248,30 @@ export function PianoRoll({ isOpen, onClose }: PianoRollProps) {
 
   const handlePullFromSequencer = useCallback(() => {
     pushUndo();
-    setNotes((prev) => pullSequencersToPianoRoll(prev));
-    flashSyncHint("Loaded from step sequencers");
+    setNotes((prev) => pullAllToPianoRoll(prev));
+    flashSyncHint("Loaded from sequencers & layers");
   }, [pushUndo, setNotes, flashSyncHint]);
 
   const handleApplyToSequencer = useCallback(() => {
-    applyPianoRollToSequencers(notes);
-    flashSyncHint("Applied to step sequencers");
+    applyAllFromPianoRoll(notes);
+    flashSyncHint("Applied to sequencers & layers");
   }, [notes, flashSyncHint]);
 
   const handleClose = useCallback(() => {
-    applyPianoRollToSequencers(notes);
+    applyAllFromPianoRoll(notes);
     onClose();
   }, [notes, onClose]);
 
   const handleTargetChange = useCallback((next: SoundTarget) => {
     if (next === target) return;
-    if (isSequencerTrack(target)) {
-      applyPianoRollTrackToSequencer(notes, target);
+    if (isMidiSyncTarget(target)) {
+      applyPianoRollTrack(notes, target);
     }
     setTarget(next);
-    if (isSequencerTrack(next)) {
+    if (isMidiSyncTarget(next)) {
       setNotes((prev) => [
         ...prev.filter((n) => n.track !== next),
-        ...pullTrackFromSequencer(next),
+        ...pullTrackToPianoRoll(next),
       ]);
     }
   }, [target, notes, setNotes]);

@@ -35,6 +35,9 @@ export function previewNote(midi: number, velocity: number, target: SoundTarget)
       chordsEngine.triggerChord([midi], now, false, false);
       break;
     case "melody":
+    case "melodyLayer0":
+    case "melodyLayer1":
+    case "melodyLayer2":
       if (soundFontEngine.isLoaded("melody")) {
         soundFontEngine.playNote("melody", midi, now, velocity, 0.25);
         return;
@@ -49,6 +52,9 @@ export function previewNote(midi: number, velocity: number, target: SoundTarget)
     const t = audioEngine.currentTime;
     if (target === "bass") bassEngine.releaseNote(t);
     else if (target === "chords") chordsEngine.releaseChord(t);
-    else if (target === "melody") melodyEngine.releaseNote(t);
+    else if (
+      target === "melody" || target === "melodyLayer0" ||
+      target === "melodyLayer1" || target === "melodyLayer2"
+    ) melodyEngine.releaseNote(t);
   }, 300);
 }

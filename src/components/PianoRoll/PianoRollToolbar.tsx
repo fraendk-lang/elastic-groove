@@ -168,9 +168,27 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
           ))}
         </div>
 
-        <div className="w-px h-4 bg-white/15 shrink-0" />
+        {/* Melody layer lanes (polymetric layers 0–2) */}
+        <div className="flex gap-px bg-black/30 rounded p-0.5 shrink-0">
+          {(["melodyLayer0", "melodyLayer1", "melodyLayer2"] as SoundTarget[]).map((t, i) => (
+            <button
+              key={t}
+              onClick={() => setTarget(t)}
+              title={`Melody Layer ${i + 1} — polymetric layer window`}
+              className="px-1.5 py-0.5 text-[7px] font-bold tracking-wider rounded-sm transition-all hover:brightness-110"
+              style={{
+                backgroundColor: target === t ? TARGET_COLORS[t] : "rgba(255,255,255,0.05)",
+                color: target === t ? "#000" : TARGET_COLORS[t],
+                opacity: target === t ? 1 : 0.55,
+                boxShadow: target === t ? `0 0 8px ${TARGET_COLORS[t]}40` : "none",
+              }}
+            >
+              L{i + 1}
+            </button>
+          ))}
+        </div>
 
-        {/* Grid */}
+        <div className="w-px h-4 bg-white/15 shrink-0" />
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-[7px] text-white/35 font-bold uppercase tracking-wider">Grid</span>
           <select
@@ -515,7 +533,7 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
             color: "rgba(180,210,255,0.85)",
             border: "1px solid rgba(80,140,255,0.35)",
           }}
-          title="Load bass/chords/melody from step sequencers into Piano Roll"
+          title="Load bass/chords/melody/drums/layers from live stores into Piano Roll"
         >
           ↻ LOAD
         </button>
@@ -528,7 +546,7 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
             color: "rgba(255,200,230,0.9)",
             border: "1px solid rgba(244,114,182,0.35)",
           }}
-          title="Apply Piano Roll edits to step sequencers (also runs on close)"
+          title="Apply Piano Roll edits to step sequencers, melody layers & drums (also runs on close)"
         >
           → SEQ
         </button>
@@ -561,7 +579,7 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
           </span>
         )}
         <span className="px-2.5 py-1 rounded-full text-[9px] font-bold tracking-[0.14em] border border-white/8 bg-white/5 text-[var(--ed-text-secondary)] shrink-0">
-          Lane {target.toUpperCase()}
+          Lane {target.startsWith("melodyLayer") ? `L${Number(target.replace("melodyLayer", "")) + 1}` : target.toUpperCase()}
         </span>
         <span className="px-2.5 py-1 rounded-full text-[9px] font-bold tracking-[0.14em] border border-white/8 bg-white/5 text-[var(--ed-text-secondary)] shrink-0">
           {targetNoteCount} lane notes

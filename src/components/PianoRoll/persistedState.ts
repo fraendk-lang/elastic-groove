@@ -8,7 +8,7 @@
 
 import { setPianoRollNotes, setPianoRollLoop } from "./scheduler";
 import type { PianoRollNote, LoopRange } from "./types";
-import { applyPianoRollToSequencers } from "./sequencerSync";
+import { applyAllFromPianoRoll } from "./midiSurfaceSync";
 
 export let _persistedNotes: PianoRollNote[] = [];
 export let _persistedLoop: LoopRange = { start: 0, end: 16, enabled: false };
@@ -30,6 +30,6 @@ export function updatePersistedLoop(loop: LoopRange): void {
  *  the `notes-imported` CustomEvent. */
 export function importPianoRollNotes(notes: PianoRollNote[]): void {
   updatePersistedNotes(notes);
-  applyPianoRollToSequencers(notes);
+  applyAllFromPianoRoll(notes);
   window.dispatchEvent(new CustomEvent("piano-roll-notes-imported"));
 }

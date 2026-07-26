@@ -13,11 +13,12 @@ import { useMelodyStore } from "../store/melodyStore";
 import type { BassStep } from "../audio/BassEngine";
 import type { ChordsStep } from "../audio/ChordsEngine";
 import type { MelodyStep } from "../audio/MelodyEngine";
+import { useMelodyLayerStore, type MelodyLayer } from "../store/melodyLayerStore";
 
 const MAX_HISTORY = 50;
 
 interface Snapshot {
-  source: "drums" | "bass" | "chords" | "melody";
+  source: "drums" | "bass" | "chords" | "melody" | "melodyLayers";
   pattern?: PatternData;
   bassSteps?: BassStep[];
   bassLength?: number;
@@ -25,6 +26,7 @@ interface Snapshot {
   chordsLength?: number;
   melodySteps?: MelodyStep[];
   melodyLength?: number;
+  melodyLayers?: MelodyLayer[];
 }
 
 export function useUndoRedo() {
@@ -40,6 +42,7 @@ export function useUndoRedo() {
   const lastChordsLength = useRef<number>(0);
   const lastMelodySteps = useRef<MelodyStep[] | null>(null);
   const lastMelodyLength = useRef<number>(0);
+  const lastMelodyLayers = useRef<MelodyLayer[] | null>(null);
 
   const pushHistory = useCallback((snap: Snapshot) => {
     history.current.push(snap);
@@ -56,6 +59,10 @@ export function useUndoRedo() {
     lastChordsLength.current = useChordsStore.getState().length;
     lastMelodySteps.current = useMelodyStore.getState().steps;
     lastMelodyLength.current = useMelodyStore.getState().length;
+    lastMelodyLayers.current = useMelodyLayerStore.getState().layers.map((l) => ({
+      ...l,
+      notes: [...l.notes],
+    }));
 
     // Drums
     const unsubDrums = useDrumStore.subscribe((state, prevState) => {
@@ -112,11 +119,25 @@ export function useUndoRedo() {
       lastMelodyLength.current = state.length;
     });
 
+    // Melody Layers
+    const unsubMelodyLayers = useMelodyLayerStore.subscribe((state, prevState) => {
+      if (isUndoRedo.current) return;
+      if (state.layers === prevState.layers) return;
+      if (lastMelodyLayers.current) {
+        pushHistory({
+          source: "melodyLayers",
+          melodyLayers: lastMelodyLayers.current,
+        });
+      }
+      lastMelodyLayers.current = state.layers.map((l) => ({ ...l, notes: [...l.notes] }));
+    });
+
     return () => {
       unsubDrums();
       unsubBass();
       unsubChords();
       unsubMelody();
+      unsubMelodyLayers();
     };
   }, [pushHistory]);
 
@@ -149,6 +170,14 @@ export function useUndoRedo() {
       useMelodyStore.setState({ steps: snap.melodySteps!, length: snap.melodyLength! });
       lastMelodySteps.current = snap.melodySteps!;
       lastMelodyLength.current = snap.melodyLength!;
+    } else if (snap.source === "melodyLayers") {
+      const cur = useMelodyLayerStore.getState();
+      future.current.push({
+        source: "melodyLayers",
+        melodyLayers: cur.layers.map((l) => ({ ...l, notes: [...l.notes] })),
+      });
+      useMelodyLayerStore.setState({ layers: snap.melodyLayers! });
+      lastMelodyLayers.current = snap.melodyLayers!.map((l) => ({ ...l, notes: [...l.notes] }));
     }
     isUndoRedo.current = false;
   }, []);
@@ -181,6 +210,14 @@ export function useUndoRedo() {
       useMelodyStore.setState({ steps: snap.melodySteps!, length: snap.melodyLength! });
       lastMelodySteps.current = snap.melodySteps!;
       lastMelodyLength.current = snap.melodyLength!;
+    } else if (snap.source === "melodyLayers") {
+      const cur = useMelodyLayerStore.getState();
+      history.current.push({
+        source: "melodyLayers",
+        melodyLayers: cur.layers.map((l) => ({ ...l, notes: [...l.notes] })),
+      });
+      useMelodyLayerStore.setState({ layers: snap.melodyLayers! });
+      lastMelodyLayers.current = snap.melodyLayers!.map((l) => ({ ...l, notes: [...l.notes] }));
     }
     isUndoRedo.current = false;
   }, []);
