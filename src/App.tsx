@@ -96,6 +96,8 @@ export function App() {
 
   // Overlay store replaces individual useState booleans
   const overlay = useOverlayStore();
+  const performancePadLooping = usePerformancePadStore((s) => s.isLooping);
+  const performancePadOpen = overlay.isOpen("performancePad");
   const minBottomPanelHeight = fxRackOpen ? 92 : 34;
 
   useKeyboard();
@@ -828,7 +830,10 @@ export function App() {
           />
         )}
         {overlay.isOpen("userGuide") && <UserGuide isOpen onClose={() => overlay.closeOverlay("userGuide")} />}
-        {overlay.isOpen("performancePad") && <PerformancePad isOpen onClose={() => overlay.closeOverlay("performancePad")} />}
+        <PerformancePad
+          isOpen={overlay.isOpen("performancePad")}
+          onClose={() => overlay.closeOverlay("performancePad")}
+        />
         {overlay.isOpen("melodyGen") && <MelodyGenerator isOpen onClose={() => overlay.closeOverlay("melodyGen")} />}
       </Suspense>
       <ShortcutOverlay />
@@ -837,6 +842,32 @@ export function App() {
       {recordMode?.audio && <RecordingControls bars={recordMode.bars} />}
       <DemoSongPicker isOpen={demoPickerOpen} onClose={() => setDemoPickerOpen(false)} />
       <InstallHintIOS />
+      {performancePadLooping && !performancePadOpen && (
+        <div
+          className="fixed bottom-5 right-5 z-[45] flex items-center gap-2 rounded-full border border-[var(--ed-accent-melody)]/40 bg-[var(--ed-bg-secondary)]/95 px-3 py-2 shadow-lg backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="w-2 h-2 rounded-full bg-[var(--ed-accent-melody)] animate-pulse" />
+          <span className="text-[10px] font-bold tracking-wider text-[var(--ed-accent-melody)]">
+            MELODY LOOP
+          </span>
+          <button
+            type="button"
+            onClick={() => overlay.openOverlay("performancePad")}
+            className="px-2 py-0.5 text-[9px] font-bold rounded bg-white/10 text-white/80 hover:bg-white/15"
+          >
+            OPEN
+          </button>
+          <button
+            type="button"
+            onClick={() => usePerformancePadStore.getState().stopLoop()}
+            className="px-2 py-0.5 text-[9px] font-bold rounded bg-[var(--ed-accent-melody)]/25 text-[var(--ed-accent-melody)] hover:bg-[var(--ed-accent-melody)]/35"
+          >
+            STOP
+          </button>
+        </div>
+      )}
       {sceneMiniOpen && <SceneMini onClose={() => setSceneMiniOpen(false)} />}
     </div>
     </ErrorBoundary>

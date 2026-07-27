@@ -46,6 +46,7 @@ function panicReleaseAll(): void {
   try { bassEngine.stopAllPoly(t); } catch { /* */ }
   try { chordsEngine.releaseChord(t); } catch { /* */ }
   try { melodyEngine.releaseNote(t); } catch { /* */ }
+  try { melodyEngine.releaseAllPolyVoices(); } catch { /* */ }
 }
 
 let _lastVisibleAt = performance.now();

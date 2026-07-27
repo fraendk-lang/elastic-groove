@@ -111,6 +111,7 @@ interface PolyVoiceSlot {
   dist: WaveShaperNode;
   inUse: boolean;
   releaseAt: number; // audio-clock time when voice tail ends (for voice stealing)
+  stolenAt: number;  // when voice was soft-stolen (0 = fresh slot)
 }
 
 export class MelodyEngine {
@@ -399,19 +400,8 @@ export class MelodyEngine {
     // Clamp scheduling time to at least 2 ms in the future.
     // Scheduling in the past causes cancelScheduledValues to abruptly
     // zero the VCA, producing the characteristic crackle/click artefact.
-    const time = Math.max(timeRaw, this.ctx.currentTime + 0.002);
-
-    // Unmute output — 3 ms ramp. See BassEngine.triggerNote for full
-    // rationale on why we drop the `=== 0` guard: an in-flight panic ramp
-    // from sceneStore.loadScene would otherwise cut the new trigger
-    // mid-flight at scene boundaries.
-    if (this.output && this.ctx) {
-      const t = this.ctx.currentTime;
-      const curValue = this.output.gain.value;
-      this.output.gain.cancelScheduledValues(t);
-      this.output.gain.setValueAtTime(Math.max(0.0001, curValue), t);
-      this.output.gain.linearRampToValueAtTime(this.params.volume, t + 0.003);
-    }
+    const time = this.safeScheduleTime(timeRaw);
+    this.ensureOutputAudible(time);
 
     const p = this.params;
 
@@ -831,12 +821,29 @@ export class MelodyEngine {
       osc.start();
       sub.start();
 
-      this.voicePool.push({ osc, sub, subGain, filter, vca, dist, inUse: false, releaseAt: 0 });
+      this.voicePool.push({ osc, sub, subGain, filter, vca, dist, inUse: false, releaseAt: 0, stolenAt: 0 });
     }
     this.poolReady = true;
   }
 
   /** Find a free voice. Frees expired voices lazily (no setTimeout needed). */
+  private safeScheduleTime(timeRaw: number): number {
+    if (!this.ctx) return timeRaw;
+    return Math.max(timeRaw, this.ctx.currentTime + 0.002);
+  }
+
+  /** Unmute shared output only when needed — avoids per-note gain resets that crackle under poly load. */
+  private ensureOutputAudible(fromTime: number): void {
+    if (!this.output || !this.ctx) return;
+    const t = Math.max(fromTime, this.ctx.currentTime);
+    const target = this.params.volume;
+    const cur = this.output.gain.value;
+    if (cur >= target * 0.85) return;
+    this.output.gain.cancelScheduledValues(t);
+    this.output.gain.setValueAtTime(Math.max(0.0001, cur), t);
+    this.output.gain.linearRampToValueAtTime(target, t + 0.003);
+  }
+
   private acquirePoolVoice(): PolyVoiceSlot | null {
     if (!this.ctx) return null;
     const pool = this.voicePool;
@@ -856,11 +863,16 @@ export class MelodyEngine {
     }
     if (!chosen) return null;
 
-    // Hard-clean ALL scheduled param events before reuse.
-    // cancelScheduledValues(0) removes everything — including any running
-    // setTargetAtTime that would otherwise continue computing indefinitely.
+    const wasInUse = chosen.inUse;
+
+    // Hard-clean scheduled param events before reuse.
     chosen.vca.gain.cancelScheduledValues(0);
-    chosen.vca.gain.setValueAtTime(0, now);
+    if (wasInUse) {
+      // Soft-steal: instant cut causes clicks when the loop is dense.
+      chosen.vca.gain.setTargetAtTime(0.0001, now, 0.003);
+    } else {
+      chosen.vca.gain.setValueAtTime(0, now);
+    }
     chosen.filter.frequency.cancelScheduledValues(0);
     chosen.filter.frequency.setValueAtTime(this.params.cutoff, now);
     chosen.osc.frequency.cancelScheduledValues(0);
@@ -868,6 +880,7 @@ export class MelodyEngine {
     chosen.subGain.gain.cancelScheduledValues(0);
 
     chosen.inUse = true;
+    chosen.stolenAt = wasInUse ? now : 0;
     return chosen;
   }
 
@@ -875,7 +888,7 @@ export class MelodyEngine {
 
   triggerPolyNote(
     midiNote: number,
-    startTime: number,
+    startTimeRaw: number,
     duration: number,
     velocity = 0.85,
     accent = false,
@@ -883,16 +896,8 @@ export class MelodyEngine {
   ): (() => void) | null {
     if (!this.ctx || !this.output) return null;
 
-    // Unmute output bus — 3 ms click-safe, scene-transition-tight.
-    // Same fix as the mono trigger above: always cancel + ramp, so an
-    // in-flight panic ramp can't kill the new note mid-flight.
-    {
-      const t = this.ctx.currentTime;
-      const curValue = this.output.gain.value;
-      this.output.gain.cancelScheduledValues(t);
-      this.output.gain.setValueAtTime(Math.max(0.0001, curValue), t);
-      this.output.gain.linearRampToValueAtTime(this.params.volume, t + 0.003);
-    }
+    let startTime = this.safeScheduleTime(startTimeRaw);
+    this.ensureOutputAudible(startTime);
 
     const p = this.params;
     const ctx = this.ctx;
@@ -928,6 +933,12 @@ export class MelodyEngine {
     if (!this.poolReady) this.initPool();
     const voice = this.acquirePoolVoice();
     if (!voice) return null;
+
+    // After soft-steal, wait for the old tail to fade before the new attack.
+    if (voice.stolenAt > 0) {
+      startTime = Math.max(startTime, voice.stolenAt + 0.004);
+    }
+    voice.stolenAt = 0;
 
     const { osc, sub, subGain, filter, vca, dist } = voice;
     const freq = midiToFreq(midiNote);

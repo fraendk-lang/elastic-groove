@@ -241,16 +241,31 @@ export function PerformancePad({ isOpen, onClose }: Props) {
 
   useEffect(() => {
     if (isOpen) return;
+    if (usePerformancePadStore.getState().isLooping) return;
     const activeFx = beatFxManager.activeEffect;
     if (activeFx) beatFxManager.stopEffect(activeFx);
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) {
-      setBassLiveTranspose(0);
-      setMelodyLiveTranspose(0);
-    }
+    if (isOpen) return;
+    if (usePerformancePadStore.getState().isLooping) return;
+    setBassLiveTranspose(0);
+    setMelodyLiveTranspose(0);
   }, [isOpen, setBassLiveTranspose, setMelodyLiveTranspose]);
+
+  /** Closing the panel must not kill a background loop — only release live touches. */
+  useEffect(() => {
+    if (isOpen) return;
+    if (isLooping) return;
+    for (const v of activeVoicesRef.current.values()) {
+      v.releases.forEach((r) => r?.());
+    }
+    activeVoicesRef.current.clear();
+    if (arpOnRef.current && !arpLatchRef.current) {
+      arpSchedulerRef.current?.stop();
+      melodyEngine.releaseAllPolyVoices();
+    }
+  }, [isOpen, isLooping]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -469,10 +484,9 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   const fireVoice = useCallback((midi: number, velocity: number, y: number, opts?: { startTime?: number; duration?: number }): (() => void) | null => {
     const ctx = audioEngine.getAudioContext();
     if (!ctx) return null;
-    // Default: trigger ~1ms ahead with 30s pseudo-sustain (released on pointer-up).
-    // Loop playback overrides startTime + duration to schedule notes exactly on
-    // the audio clock — bypasses setTimeout main-thread jitter.
-    const startTime = opts?.startTime ?? (ctx.currentTime + 0.001);
+    // Default: trigger ahead of now with small lookahead (reduces past-schedule clicks).
+    // Loop playback overrides startTime + duration to schedule on the audio clock.
+    const startTime = opts?.startTime ?? (ctx.currentTime + 0.008);
     const duration = opts?.duration ?? 30.0;
 
     // Apply Y modulation to engine params BEFORE trigger
@@ -647,7 +661,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
         const yCell = 1 - ((row + 0.5) / chordSet.rows);
         // Inner voices slightly softer than root
         const noteVel = velocity * (i === 0 ? 1.0 : 0.82 - i * 0.04);
-        const startTime = (ctx?.currentTime ?? 0) + 0.001 + strumDelay;
+        const startTime = (ctx?.currentTime ?? 0) + 0.008 + strumDelay;
         // Fire with strum delay using direct engine calls.
         // Both engines now have a true polyphonic path (triggerPolyNote) —
         // chord-mode in bass target previously sounded only the LAST note
@@ -902,11 +916,11 @@ export function PerformancePad({ isOpen, onClose }: Props) {
               });
             }
           } else {
-            // Direct triggering with EXACT audio start + duration
-            // Pass startTime so the audio engine schedules precisely, not
-            // "whenever setTimeout decided to fire".
+            // setTimeout may fire late — clamp to safe audio time at fire moment.
+            const nowAudio = audioEngine.getAudioContext()?.currentTime ?? 0;
+            const safeStart = Math.max(audioStart, nowAudio + 0.002);
             const release = fireVoice(midi, note.velocity, note.y, {
-              startTime: audioStart,
+              startTime: safeStart,
               duration: note.duration,
             });
             // Track for cleanup-on-stop. Release isn't usually called (engine
