@@ -6,8 +6,9 @@
  */
 
 import type { DrumKit } from "./KitManager";
+import { polishFactoryKits } from "./factoryKitPolish";
 
-export const FACTORY_KITS: DrumKit[] = [
+export const RAW_FACTORY_KITS: DrumKit[] = [
 
   // ═══════════════════════════════════════════════════════
   // 808 CLASSICS
@@ -330,6 +331,13 @@ export const FACTORY_KITS: DrumKit[] = [
       8: { tune: 400, decay: 700 }, 9: { tune: 500, decay: 700 },
       10: { tune: 1000, decay: 80 }, 11: { tune: 1500, decay: 60 },
     },
+    pattern: { length: 16, swing: 52, tracks: {
+      0: { steps: [0, 4, 9, 10], vel: [110, 85, 95, 70] },
+      1: { steps: [4, 12], vel: [105, 100] },
+      2: { steps: [12], vel: [65] },
+      6: { steps: [0, 2, 4, 6, 8, 10, 12, 14], vel: [75, 45, 65, 45, 75, 45, 65, 45] },
+      10: { steps: [2, 6, 14], vel: [50, 45, 50] },
+    }},
   },
 
   // ═══════════════════════════════════════════════════════
@@ -485,6 +493,11 @@ export const FACTORY_KITS: DrumKit[] = [
       8: { tune: 330, decay: 1200 }, 9: { tune: 420, decay: 1200 },
       10: { tune: 500, decay: 200 }, 11: { tune: 800, decay: 180 },
     },
+    pattern: { length: 16, swing: 54, tracks: {
+      0: { steps: [0, 8], vel: [68, 52] },
+      10: { steps: [2, 6, 10, 14], vel: [38, 34, 38, 34] },
+      11: { steps: [1, 5, 9, 13], vel: [32, 28, 32, 28] },
+    }},
   },
 
   {
@@ -1757,6 +1770,8 @@ export const FACTORY_KITS: DrumKit[] = [
   },
 
 ];
+
+export const FACTORY_KITS = polishFactoryKits(RAW_FACTORY_KITS);
 
 // Categories for the kit browser
 export const KIT_CATEGORIES = [

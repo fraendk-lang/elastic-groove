@@ -424,8 +424,16 @@ export class AudioEngine {
   startNoise(volume = 0.3): void { sendFxManager.startNoise(volume); }
   stopNoise(): void { sendFxManager.stopNoise(); }
 
-  startStutter(rate: number): void { if (this.masterCompressor) sendFxManager.startStutter(rate, this.masterCompressor); }
-  stopStutter(): void { if (this.masterCompressor) sendFxManager.stopStutter(this.masterCompressor); }
+  startStutter(rate: number): void {
+    if (this.masterCompressor) {
+      sendFxManager.startStutter(rate, this.masterCompressor, this.chokeFilter);
+    }
+  }
+  stopStutter(): void {
+    if (this.masterCompressor) {
+      sendFxManager.stopStutter(this.masterCompressor, this.chokeFilter);
+    }
+  }
 
   setMasterSaturation(amount: number): void { sendFxManager.setMasterSaturation(amount); }
 

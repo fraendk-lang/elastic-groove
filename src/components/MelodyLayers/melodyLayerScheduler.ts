@@ -38,6 +38,26 @@ export const melodyLayerBeatStore = {
   },
 };
 
+// Per-layer 16th-note step counters for floating HUD / visual feedback.
+const _stepListeners = new Set<() => void>();
+let _stepSnapshot: { steps: [number, number, number, number] } = { steps: [0, 0, 0, 0] };
+
+export const melodyLayerStepStore = {
+  subscribe(listener: () => void): () => void {
+    _stepListeners.add(listener);
+    return () => _stepListeners.delete(listener);
+  },
+  getSnapshot(): { steps: [number, number, number, number] } {
+    return _stepSnapshot;
+  },
+};
+
+export function getLayerLocalStep(layerIndex: number, barLength: 1 | 2 | 4 | 8): number {
+  const counter = _stepCounters[layerIndex] ?? 0;
+  const stepsPerLoop = barLength * 16;
+  return counter % stepsPerLoop;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -167,6 +187,22 @@ function tick(currentDrumStep: number, bpm: number): void {
       for (const fn of _beatListeners) fn();
     }
   }
+
+  const nextSteps: [number, number, number, number] = [
+    _stepCounters[0] ?? 0,
+    _stepCounters[1] ?? 0,
+    _stepCounters[2] ?? 0,
+    _stepCounters[3] ?? 0,
+  ];
+  if (
+    nextSteps[0] !== _stepSnapshot.steps[0]
+    || nextSteps[1] !== _stepSnapshot.steps[1]
+    || nextSteps[2] !== _stepSnapshot.steps[2]
+    || nextSteps[3] !== _stepSnapshot.steps[3]
+  ) {
+    _stepSnapshot = { steps: nextSteps };
+    for (const fn of _stepListeners) fn();
+  }
 }
 
 // ─── Subscribe to drum step clock ─────────────────────────────────────────────
@@ -180,7 +216,9 @@ const _unsubDrum = drumCurrentStepStore.subscribe(() => {
     _lastDrumStep = -1;
     _stepCounters.fill(0);
     _beatSnapshot = { beat: 0 };
+    _stepSnapshot = { steps: [0, 0, 0, 0] };
     for (const fn of _beatListeners) fn();
+    for (const fn of _stepListeners) fn();
   }
 });
 

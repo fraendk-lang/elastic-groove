@@ -93,6 +93,11 @@ export interface MelodyPreset {
 
 export const MELODY_SIGNATURE_PRESET_NAMES = [
   "★ Organ Lead",
+  "★ Melody Pad Lead",
+  "★ Melody Pad Bells",
+  "★ Melody Pad Pluck",
+  "★ Melody Pad Synth",
+  "★ Melody Pad Deep",
   "★ Strings Lead",
   "★ Glass Bells",
   "★ Vocal Lead",
@@ -116,7 +121,15 @@ function ensureSynthParams(p: MelodyParams): MelodyParams {
 
 export const MELODY_PRESETS: MelodyPreset[] = [
   // ── ★ Featured Wavetable Leads ──
-  { name: "★ Organ Lead",    params: mp({ synthType: "subtractive", waveform: "wavetable", wavetable: "organ",      filterModel: "lpf",    cutoff: 4500, resonance:  2, envMod: 0.08, decay: 200, accent: 0.25, slideTime:  8, legato: false, distortion: 0.08, volume: 0.52, subOsc: 0.15, unison: 0.10, vibratoRate: 6,   vibratoDepth: 0.04, filterLfoDepth: 0.15 }) },
+  { name: "★ Organ Lead",    params: mp({ synthType: "subtractive", waveform: "wavetable", wavetable: "organ",      filterModel: "ladder", cutoff: 5200, resonance:  4, envMod: 0.22, decay: 260, accent: 0.32, slideTime: 12, legato: true,  distortion: 0.06, volume: 0.56, subOsc: 0.22, unison: 0.28, vibratoRate: 5.5, vibratoDepth: 0.07, ampAttack: 6, ampDecay: 180, ampSustain: 0.82, ampRelease: 420, filterLfoDepth: 0.22 }) },
+  // Wide vocal-wavetable lead tuned for Melody Pad + step layers: 3-voice unison,
+  // ladder filter, medium release — sits on top of drums without harshness.
+  { name: "★ Melody Pad Lead", params: mp({ synthType: "subtractive", waveform: "wavetable", wavetable: "vocal", filterModel: "ladder", cutoff: 4800, resonance:  5, envMod: 0.32, decay: 220, accent: 0.38, slideTime: 18, legato: true,  distortion: 0.05, volume: 0.58, subOsc: 0.20, unison: 0.62, vibratoRate: 5.2, vibratoDepth: 0.09, ampAttack: 4, ampDecay: 160, ampSustain: 0.78, ampRelease: 380, filterLfoDepth: 0.20 }) },
+  // FM bell/pluck for sparse step patterns — short decay, bright partials.
+  { name: "★ Melody Pad Bells", params: mp({ synthType: "fm", waveform: "triangle", filterModel: "lpf", cutoff: 6400, resonance:  2, envMod: 0.06, decay:  75, accent: 0.30, slideTime:  0, legato: false, distortion: 0.01, volume: 0.54, subOsc: 0.00, unison: 0.12, vibratoRate: 4.2, vibratoDepth: 0.04, fmHarmonicity: 3.6, fmModIndex: 12, ampAttack: 2, ampDecay: 65, ampSustain: 0.32, ampRelease: 340, filterLfoDepth: 0.06 }) },
+  { name: "★ Melody Pad Pluck", params: mp({ synthType: "pluck", waveform: "triangle", filterModel: "lpf", cutoff: 4200, resonance:  8, envMod: 0.22, decay:  95, accent: 0.42, slideTime:  0, legato: false, distortion: 0.02, volume: 0.56, subOsc: 0.00, unison: 0.08, vibratoRate: 4.0, vibratoDepth: 0.02, ampAttack: 1, ampDecay: 55, ampSustain: 0.22, ampRelease: 280, filterLfoDepth: 0.04 }) },
+  { name: "★ Melody Pad Synth", params: mp({ synthType: "subtractive", waveform: "sawtooth", filterModel: "ladder", cutoff: 3600, resonance:  6, envMod: 0.28, decay: 190, accent: 0.44, slideTime: 10, legato: false, distortion: 0.08, volume: 0.55, subOsc: 0.14, unison: 0.72, vibratoRate: 5.0, vibratoDepth: 0.05, ampAttack: 3, ampDecay: 140, ampSustain: 0.80, ampRelease: 320, filterLfoDepth: 0.18 }) },
+  { name: "★ Melody Pad Deep", params: mp({ synthType: "subtractive", waveform: "wavetable", wavetable: "strings", filterModel: "ladder", cutoff: 2200, resonance:  3, envMod: 0.18, decay: 320, accent: 0.24, slideTime: 28, legato: true,  distortion: 0.03, volume: 0.57, subOsc: 0.35, unison: 0.38, vibratoRate: 4.8, vibratoDepth: 0.08, ampAttack: 8, ampDecay: 200, ampSustain: 0.86, ampRelease: 450, filterLfoDepth: 0.28 }) },
   { name: "★ Strings Lead",  params: mp({ synthType: "subtractive", waveform: "wavetable", wavetable: "strings",    filterModel: "ladder", cutoff: 2200, resonance:  3, envMod: 0.12, decay: 400, accent: 0.18, slideTime: 60, legato: true,  distortion: 0.04, volume: 0.50, subOsc: 0.12, unison: 0.45, vibratoRate: 4.5, vibratoDepth: 0.12, filterLfoDepth: 0.35 }) },
   { name: "★ Glass Bells",   params: mp({ synthType: "subtractive", waveform: "wavetable", wavetable: "glass",      filterModel: "lpf",    cutoff: 5500, resonance:  6, envMod: 0.10, decay:  90, accent: 0.28, slideTime:  0, legato: false, distortion: 0.00, volume: 0.46, subOsc: 0.00, unison: 0.00, vibratoRate: 3,   vibratoDepth: 0.00, ampDecay: 80, ampSustain: 0.4, ampRelease: 400, filterLfoDepth: 0.10 }) },
   { name: "★ Vocal Lead",    params: mp({ synthType: "subtractive", waveform: "wavetable", wavetable: "vocal",      filterModel: "ladder", cutoff: 1800, resonance:  4, envMod: 0.15, decay: 350, accent: 0.20, slideTime: 80, legato: true,  distortion: 0.02, volume: 0.48, subOsc: 0.05, unison: 0.25, vibratoRate: 5,   vibratoDepth: 0.15, filterLfoDepth: 0.40 }) },
@@ -208,6 +221,37 @@ export const MELODY_PRESETS: MelodyPreset[] = [
   { name: "Glass Lead",  params: mp({ synthType: "subtractive", filterModel: "lpf",        waveform: "triangle", cutoff: 5500, resonance:  6, envMod: 0.15, decay: 180, accent: 0.30, distortion: 0.03, volume: 0.50, subOsc: 0.00, unison: 0.20, vibratoRate: 5.0, vibratoDepth: 0.06, fmHarmonicity: 1, fmModIndex: 0 }) },
   { name: "Acid Lead Pro", params: mp({ synthType: "subtractive", filterModel: "steiner-lp", waveform: "sawtooth", cutoff:  800, resonance: 22, envMod: 0.70, decay:  80, accent: 0.60, distortion: 0.28, volume: 0.54, subOsc: 0.10, unison: 0.00, vibratoRate: 0.5, vibratoDepth: 0.00, fmHarmonicity: 1, fmModIndex: 0 }) },
 ];
+
+/** Default lead for Melody Pad + step-layer export (index 1). */
+export const MELODY_PAD_PRESET_NAME = "★ Melody Pad Lead" as const;
+export const MELODY_PAD_PRESET_INDEX = MELODY_PRESETS.findIndex(
+  (p) => p.name === MELODY_PAD_PRESET_NAME,
+);
+export const MELODY_PAD_BELLS_PRESET_NAME = "★ Melody Pad Bells" as const;
+export const MELODY_PAD_BELLS_PRESET_INDEX = MELODY_PRESETS.findIndex(
+  (p) => p.name === MELODY_PAD_BELLS_PRESET_NAME,
+);
+export const MELODY_PAD_PLUCK_PRESET_NAME = "★ Melody Pad Pluck" as const;
+export const MELODY_PAD_PLUCK_PRESET_INDEX = MELODY_PRESETS.findIndex(
+  (p) => p.name === MELODY_PAD_PLUCK_PRESET_NAME,
+);
+export const MELODY_PAD_SYNTH_PRESET_NAME = "★ Melody Pad Synth" as const;
+export const MELODY_PAD_SYNTH_PRESET_INDEX = MELODY_PRESETS.findIndex(
+  (p) => p.name === MELODY_PAD_SYNTH_PRESET_NAME,
+);
+export const MELODY_PAD_DEEP_PRESET_NAME = "★ Melody Pad Deep" as const;
+export const MELODY_PAD_DEEP_PRESET_INDEX = MELODY_PRESETS.findIndex(
+  (p) => p.name === MELODY_PAD_DEEP_PRESET_NAME,
+);
+
+/** Quick-switch presets shown in the Melody Pad toolbar. */
+export const MELODY_PAD_SOUND_PRESETS = [
+  { id: "lead", label: "LEAD", index: MELODY_PAD_PRESET_INDEX, hint: "Breiter Vocal-Lead" },
+  { id: "bells", label: "BELLS", index: MELODY_PAD_BELLS_PRESET_INDEX, hint: "FM-Bells / sparse Steps" },
+  { id: "pluck", label: "PLUCK", index: MELODY_PAD_PLUCK_PRESET_INDEX, hint: "Perkussiver Pluck" },
+  { id: "synth", label: "SYNTH", index: MELODY_PAD_SYNTH_PRESET_INDEX, hint: "Supersaw-Hook" },
+  { id: "deep", label: "DEEP", index: MELODY_PAD_DEEP_PRESET_INDEX, hint: "Warm / Deep House" },
+].filter((p) => p.index >= 0);
 
 export const MELODY_CORE_PRESETS = MELODY_PRESETS.filter((preset) =>
   MELODY_SIGNATURE_PRESET_NAMES.includes(preset.name as typeof MELODY_SIGNATURE_PRESET_NAMES[number])
@@ -1100,8 +1144,8 @@ export const useMelodyStore = create<MelodyStore>((set, get) => ({
   rootName: "C",
   scaleName: "Minor",
   globalOctave: 0,
-  params: { ...DEFAULT_MELODY_PARAMS },
-  presetIndex: 0,
+  params: { ...(MELODY_PRESETS[1]?.params ?? DEFAULT_MELODY_PARAMS) },
+  presetIndex: MELODY_PAD_PRESET_INDEX >= 0 ? MELODY_PAD_PRESET_INDEX : 1,
   strategyIndex: 0,
   automationData: {},
   automationParam: "cutoff",

@@ -21,6 +21,7 @@ import {
   NUM_MIXER_CHANNELS,
   type GroupBusId,
 } from "../store/mixerBarStore";
+import { MixerFader } from "./MixerFader";
 
 // ─── Channel meta ────────────────────────────────────────
 
@@ -696,14 +697,12 @@ function ChannelStrip({
         style={{ minHeight: viewMode === "min" ? 120 : viewMode === "std" ? 100 : 80 }}
       >
         <Meter rmsDb={meter.rmsDb} peakDb={meter.peakDb} color={color} width={12} />
-        <div className="flex-1 flex items-center justify-center">
-          <input
-            type="range" min={0} max={1000} value={faderValue}
-            onChange={(e) => onFader(Number(e.target.value))}
-            className="accent-white/70"
-            style={{ writingMode: "vertical-lr", direction: "rtl", height: "100%", width: "24px", minHeight: 60 }}
-          />
-        </div>
+        <MixerFader
+          value={faderValue}
+          onChange={onFader}
+          height={viewMode === "min" ? 88 : viewMode === "std" ? 72 : 60}
+          width={20}
+        />
       </div>
 
       {/* Readout */}
@@ -856,15 +855,7 @@ function BusStrip({ label, color, meter, faderValue, onFader }: {
       </div>
       <div className="flex gap-[5px] px-[6px] py-2 flex-1 min-h-[100px]">
         <Meter rmsDb={meter.rmsDb} peakDb={meter.peakDb} color={color} width={10} />
-        <div className="flex-1 flex items-center justify-center" title="Double-click to reset">
-          <input
-            type="range" min={0} max={1000} value={faderValue}
-            onChange={(e) => onFader(Number(e.target.value))}
-            onDoubleClick={() => onFader(750)}
-            className="accent-white/70"
-            style={{ writingMode: "vertical-lr", direction: "rtl", height: "100%", width: "20px", minHeight: 60 }}
-          />
-        </div>
+        <MixerFader value={faderValue} onChange={onFader} height={88} width={20} />
       </div>
       <div className="border-t border-white/[0.06] bg-black/25 py-[3px] text-center text-[6px] font-mono text-white/30">
         {meter.rmsDb > -60 ? meter.rmsDb.toFixed(1) : "-∞"}
@@ -927,13 +918,7 @@ function MasterStrip({ meter, faderValue, onFader, limiterOn, grReduction }: {
       {/* Meter + fader */}
       <div className="flex gap-[6px] px-[8px] py-3 flex-1 min-h-[110px]">
         <Meter rmsDb={meter.rmsDb} peakDb={meter.peakDb} color="#22c55e" width={14} />
-        <div className="flex-1 flex items-center justify-center">
-          <input
-            type="range" min={0} max={1000} value={faderValue}
-            onChange={(e) => onFader(Number(e.target.value))}
-            style={{ writingMode: "vertical-lr", direction: "rtl", height: "100%", width: "28px", minHeight: 80, accentColor: "#22c55e" }}
-          />
-        </div>
+        <MixerFader value={faderValue} onChange={onFader} height={96} width={28} />
       </div>
 
       {/* GR */}

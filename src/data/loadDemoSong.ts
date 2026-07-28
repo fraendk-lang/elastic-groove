@@ -10,6 +10,9 @@
 import { useDrumStore } from "../store/drumStore";
 import { useBassStore, BASS_PRESETS } from "../store/bassStore";
 import { useChordsStore, CHORDS_PRESETS } from "../store/chordsStore";
+import { useMelodyStore, MELODY_PRESETS } from "../store/melodyStore";
+import { useMelodyLayerStore } from "../store/melodyLayerStore";
+import { usePerformancePadStore } from "../store/performancePadStore";
 import { useMixerBarStore } from "../store/mixerBarStore";
 import { applyKit, kitToPattern } from "../kits/KitManager";
 import { FACTORY_KITS } from "../kits/factoryKits";
@@ -17,8 +20,13 @@ import { NOTE_CLASS, type DemoSong } from "./demoSongs";
 
 const BASS_OCTAVE_MIDI = 36;    // C2 — matches BassEngine register
 const CHORDS_OCTAVE_MIDI = 48;  // C3 — matches ChordsEngine register
+const MELODY_OCTAVE_MIDI = 48;  // C3 — matches MelodyEngine default register
 
-export function loadDemoSong(song: DemoSong, opts: { autoPlay?: boolean } = {}): void {
+export interface LoadDemoSongResult {
+  hint?: string;
+}
+
+export function loadDemoSong(song: DemoSong, opts: { autoPlay?: boolean } = {}): LoadDemoSongResult {
   const autoPlay = opts.autoPlay ?? true;
   const noteClass = NOTE_CLASS[song.rootName] ?? 0;
 
@@ -26,11 +34,23 @@ export function loadDemoSong(song: DemoSong, opts: { autoPlay?: boolean } = {}):
   const drum = useDrumStore.getState();
   if (drum.isPlaying) drum.togglePlay();
 
+  // ── 1b. Clean pad / melody-layer state (auto-save leftovers) ──
+  // Without this, old L3 patterns keep playing on top of the demo — sounds 2× fast/busy.
+  const layerStore = useMelodyLayerStore.getState();
+  layerStore.setEnabled(false);
+  for (const layer of layerStore.layers) {
+    layerStore.clearNotes(layer.id);
+  }
+  usePerformancePadStore.getState().clearStepPattern();
+  useMelodyStore.getState().setStepNoteValue("1/16");
+
   // ── 2. Apply kit (samples + voice params + mixer + master FX) + drum pattern ──
   const kit = FACTORY_KITS.find((k) => k.id === song.kitId);
   if (kit) {
     applyKit(kit);
-    const drumPattern = kitToPattern(kit);
+    const drumPattern = kitToPattern(
+      song.drumPattern ? { ...kit, pattern: song.drumPattern } : kit,
+    );
     if (drumPattern) {
       useDrumStore.setState({
         pattern: drumPattern,
@@ -55,6 +75,7 @@ export function loadDemoSong(song: DemoSong, opts: { autoPlay?: boolean } = {}):
     const idx = BASS_PRESETS.findIndex((p) => p.name === song.bassPresetName);
     if (idx >= 0) {
       const bassState = useBassStore.getState();
+      bassState.setLiveTransposeOffset(0);
       bassState.loadPreset(idx);
       if (song.bassSteps) {
         bassState.loadBassPattern({
@@ -92,16 +113,39 @@ export function loadDemoSong(song: DemoSong, opts: { autoPlay?: boolean } = {}):
     }
   }
 
-  // ── 6. Apply mixer fader overrides ──────────────────────
+  // ── 6. Melody — preset + hook pattern ───────────────────
+  if (song.melodyPresetName) {
+    const idx = MELODY_PRESETS.findIndex((p) => p.name === song.melodyPresetName);
+    if (idx >= 0) {
+      const melodyState = useMelodyStore.getState();
+      melodyState.setLiveTransposeOffset(0);
+      melodyState.loadPreset(idx);
+      if (song.melodySteps) {
+        melodyState.loadMelodyPattern({
+          steps: song.melodySteps,
+          length: song.melodyLength ?? song.melodySteps.length,
+          params: useMelodyStore.getState().params,
+          rootNote: MELODY_OCTAVE_MIDI + noteClass,
+          rootName: song.rootName,
+          scaleName: song.scaleName,
+        });
+      }
+    } else {
+      console.warn(`[loadDemoSong] Melody preset not found: ${song.melodyPresetName}`);
+    }
+  }
+
+  // ── 7. Apply mixer fader overrides ──────────────────────
   // Channels: 12 = bass, 13 = chords, 14 = melody/lead
+  const { setFader, setGroupFader } = useMixerBarStore.getState();
+  setGroupFader("bass", 680);
   if (song.faderOverrides) {
-    const { setFader } = useMixerBarStore.getState();
     for (const [chStr, fader] of Object.entries(song.faderOverrides)) {
       setFader(Number(chStr), fader);
     }
   }
 
-  // ── 7. Auto-play after a short settle delay ─────────────
+  // ── 8. Auto-play after a short settle delay ─────────────
   if (autoPlay) {
     setTimeout(() => {
       if (!useDrumStore.getState().isPlaying) {
@@ -109,4 +153,6 @@ export function loadDemoSong(song: DemoSong, opts: { autoPlay?: boolean } = {}):
       }
     }, 120);
   }
+
+  return {};
 }

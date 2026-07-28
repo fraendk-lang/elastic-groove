@@ -9,6 +9,8 @@ import { useDrumStore } from "../store/drumStore";
 import { useBassStore } from "../store/bassStore";
 import { useChordsStore } from "../store/chordsStore";
 import { useMelodyStore } from "../store/melodyStore";
+import { useMelodyLayerStore } from "../store/melodyLayerStore";
+import { usePerformancePadStore } from "../store/performancePadStore";
 import { useSamplerStore, stopSamplerScheduler } from "../store/samplerStore";
 import { useLoopPlayerStore, type LoopSlotState } from "../store/loopPlayerStore";
 import { bassEngine, DEFAULT_BASS_PARAMS } from "../audio/BassEngine";
@@ -17,6 +19,7 @@ import { melodyEngine, DEFAULT_MELODY_PARAMS } from "../audio/MelodyEngine";
 import { audioEngine } from "../audio/AudioEngine";
 import { loopPlayerEngine } from "../audio/LoopPlayerEngine";
 import { updatePersistedNotes } from "../components/PianoRoll/persistedState";
+import { panicAllMelodyEngines } from "./stopMelodyPlayback";
 
 function createEmptyLoopSlot(): LoopSlotState {
   return {
@@ -51,7 +54,7 @@ export function resetAll(): void {
 
   bassEngine.panic(now);
   chordsEngine.panic(now);
-  melodyEngine.panic(now);
+  panicAllMelodyEngines();
   stopSamplerScheduler();
   loopPlayerEngine.stopAll();
   useLoopPlayerStore.getState().stopAll();
@@ -106,4 +109,15 @@ export function resetAll(): void {
   // ── 8. Piano Roll: clear all notes ────────────────────────
   updatePersistedNotes([]);
   window.dispatchEvent(new CustomEvent("piano-roll-notes-imported"));
+
+  // ── 9. Melody Layers + Performance Pad step pattern ───────
+  const layerStore = useMelodyLayerStore.getState();
+  useMelodyLayerStore.setState({
+    enabled: false,
+    layers: layerStore.layers.map((l) => ({ ...l, notes: [] })),
+  });
+  const pad = usePerformancePadStore.getState();
+  pad.stopLoop();
+  pad.clearStepPattern();
+  pad.clearRecording();
 }

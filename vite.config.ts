@@ -7,7 +7,7 @@ export default defineConfig({
   test: {
     // Never scan build-output directories for tests — `plugin/build` holds
     // vendored JUCE example code (CMake FetchContent) with unparsable JSX.
-    exclude: [...configDefaults.exclude, "plugin/**"],
+    exclude: [...configDefaults.exclude, "plugin/**", "**/e2e/**"],
   },
   resolve: {
     alias: {

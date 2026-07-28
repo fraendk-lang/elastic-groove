@@ -20,7 +20,7 @@ import { generateArpNotes, type ArpSettings, ARP_RATES } from './Arpeggiator';
  * pointer-position → audible note within ~100ms. The caller can override
  * via getLookahead() — see the explanation below in ArpSchedulerOptions.
  */
-const DEFAULT_LOOKAHEAD_SEC = 0.1;
+const DEFAULT_LOOKAHEAD_SEC = 0.15;
 
 export interface ArpSchedulerOptions {
   getRoot: () => number;

@@ -252,6 +252,8 @@ interface PerformancePadState {
   trailEnabled: boolean;    // Particle trail behind cursor
   chordFollow: boolean;     // When true, Bass + Melody auto-transpose to match pad chord root
   gridRows: number;         // Rows in scale-grid mode (each row = one octave)
+  /** Chorus + compression glue on melody pad output (0–100). */
+  toneFxAmount: number;
 
   // Editable chord sets (deep-clone of CHORD_SETS, persisted in localStorage)
   customChordSets: ChordSet[];
@@ -286,6 +288,7 @@ interface PerformancePadState {
   setTrailEnabled: (b: boolean) => void;
   setChordFollow: (b: boolean) => void;
   setGridRows: (n: number) => void;
+  setToneFxAmount: (n: number) => void;
 
   // Chord editor actions
   setChordIntervals: (setIdx: number, cellIdx: number, intervals: number[], label: string) => void;
@@ -296,6 +299,8 @@ interface PerformancePadState {
   startStepRecording: (bpm: number) => void;
   stopRecording: (bpm: number) => void;  // bpm needed to compute bar-snapped loop length
   clearRecording: () => void;
+  /** Clear step-sequencer grid only (keeps XY recordings / FX). */
+  clearStepPattern: () => void;
   /** Place a note at the current step and advance the cursor by one (wraps). */
   placeStepNote: (note: StepNote) => void;
   /** Jump the step cursor to any step index (clamped to range). */
@@ -334,6 +339,7 @@ export const usePerformancePadStore = create<PerformancePadState>((set, get) => 
   trailEnabled: true,
   chordFollow: true,
   gridRows: 2,
+  toneFxAmount: 78,
   customChordSets: loadCustomChordSets(),
 
   events: [],
@@ -364,6 +370,7 @@ export const usePerformancePadStore = create<PerformancePadState>((set, get) => 
   setTrailEnabled: (b) => set({ trailEnabled: b }),
   setChordFollow: (b) => set({ chordFollow: b }),
   setGridRows: (n) => set({ gridRows: Math.max(1, Math.min(4, n)) }),
+  setToneFxAmount: (n) => set({ toneFxAmount: Math.max(0, Math.min(100, Math.round(n))) }),
 
   setChordIntervals: (setIdx, cellIdx, intervals, label) => {
     const prev = get().customChordSets;
@@ -514,6 +521,18 @@ export const usePerformancePadStore = create<PerformancePadState>((set, get) => 
     set({
       events: [], fxEvents: [], loopDuration: 0, isRecording: false, isArmed: false,
       isStepRecording: false, stepNotes: [], stepCursor: 0,
+    });
+  },
+
+  clearStepPattern: () => {
+    const s = get();
+    const count = s.stepNotes.length;
+    if (count === 0) return;
+    const stepNotes = new Array<StepNote | null>(count).fill(null);
+    set({
+      stepNotes,
+      stepCursor: 0,
+      events: stepNotesToEvents(stepNotes, s.stepGridMs, s.loopDuration),
     });
   },
 

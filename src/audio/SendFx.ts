@@ -977,12 +977,21 @@ export class SendFxManager {
     }
   }
 
+  /** Node between pumpGain and masterCompressor (AudioEngine: chokeFilter). */
+  private stutterDownstream: AudioNode | null = null;
+
   /** Start stutter/gate effect — inserts a gain gate between pump and compressor.
    *  Smooth entry: ramps base gain + LFO depth over 30 ms so entering the gate
    *  doesn't click. Square LFO for the classic hard-gate stutter pulse. */
-  startStutter(rate: number, masterCompressor: DynamicsCompressorNode): void {
+  startStutter(
+    rate: number,
+    masterCompressor: DynamicsCompressorNode,
+    postPumpNode?: AudioNode | null,
+  ): void {
     if (!this.ctx || !this.pumpGain || !masterCompressor) return;
-    this.stopStutter(masterCompressor);
+    const downstream = postPumpNode ?? masterCompressor;
+    this.stopStutter(masterCompressor, downstream);
+    this.stutterDownstream = downstream;
     const now = this.ctx.currentTime;
 
     this.stutterGain = this.ctx.createGain();
@@ -990,10 +999,10 @@ export class SendFxManager {
     this.stutterGain.gain.setValueAtTime(1.0, now);
     this.stutterGain.gain.linearRampToValueAtTime(0.5, now + 0.03);
 
-    // Disconnect pumpGain → compressor and re-route through gate
-    this.pumpGain.disconnect(masterCompressor);
+    // Disconnect pumpGain → downstream (chokeFilter in AudioEngine) and re-route through gate
+    try { this.pumpGain.disconnect(downstream); } catch { /* already disconnected */ }
     this.pumpGain.connect(this.stutterGain);
-    this.stutterGain.connect(masterCompressor);
+    this.stutterGain.connect(downstream);
 
     // LFO modulates the gate gain
     this.stutterLfo = this.ctx.createOscillator();
@@ -1013,8 +1022,12 @@ export class SendFxManager {
   /** Stop stutter — fades the gate back to 1.0 over 30 ms before disconnecting.
    *  Cancels any already-pending teardown timer to prevent the previous stop
    *  from disconnecting a newly-started stutter (rapid-retrigger race condition). */
-  stopStutter(masterCompressor: DynamicsCompressorNode): void {
+  stopStutter(
+    masterCompressor: DynamicsCompressorNode,
+    postPumpNode?: AudioNode | null,
+  ): void {
     if (!this.ctx) return;
+    const downstream = postPumpNode ?? this.stutterDownstream ?? masterCompressor;
 
     // Cancel any previous teardown that hasn't fired yet
     if (this._stopStutterTimer !== null) {
@@ -1045,10 +1058,11 @@ export class SendFxManager {
         try { lfo.disconnect(); } catch { /* */ }
       }
       // Only restore direct routing if stutter is still stopped
-      if (gate && this.stutterGain === null && this.pumpGain && masterCompressor) {
+      if (gate && this.stutterGain === null && this.pumpGain) {
         try { this.pumpGain.disconnect(gate); } catch { /* */ }
         try { gate.disconnect(); } catch { /* */ }
-        try { this.pumpGain.connect(masterCompressor); } catch { /* */ }
+        try { this.pumpGain.connect(downstream); } catch { /* */ }
+        this.stutterDownstream = null;
       } else if (gate) {
         // New stutter already started — just clean up the old gate node
         try { gate.disconnect(); } catch { /* */ }

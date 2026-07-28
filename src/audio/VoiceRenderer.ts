@@ -125,6 +125,11 @@ export interface LoopData {
   stretchMode?: "repitch" | "beats";
 }
 
+/** Avoid scheduling into the past — abrupt gain cuts cause clicks under load. */
+function clampScheduleTime(ctx: AudioContext, t: number): number {
+  return Math.max(t, ctx.currentTime + 0.005);
+}
+
 export class VoiceRenderer {
   private voiceParams: VoiceParams[] = [];
   private noiseBuffer: AudioBuffer | null = null;
@@ -210,6 +215,7 @@ export class VoiceRenderer {
     projectBpm = 0,
     transportStart = 0,
   ): void {
+    time = clampScheduleTime(ctx, time);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
 
@@ -309,6 +315,7 @@ export class VoiceRenderer {
     projectBpm = 0,
     transportStart = 0,
   ): void {
+    t = clampScheduleTime(ctx, t);
     const p = this.voiceParams[voice] ?? {};
 
     // ── Perceptual velocity curve ──────────────────────────────────

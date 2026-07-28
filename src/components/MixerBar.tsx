@@ -11,8 +11,10 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { audioEngine } from "../audio/AudioEngine";
-import { useMixerBarStore, faderToGain, NUM_MIXER_CHANNELS, GROUP_BUS_IDS, type GroupBusId } from "../store/mixerBarStore";
+import { useMixerBarStore, NUM_MIXER_CHANNELS, GROUP_BUS_IDS, type GroupBusId } from "../store/mixerBarStore";
 import { Knob } from "./Knob";
+import { MixerFader } from "./MixerFader";
+import { MelodyLayerQuickStrip } from "./MelodyLayers/MelodyLayerQuickStrip";
 
 // ── Channel meta ──────────────────────────────────────────────────────────────
 
@@ -243,27 +245,12 @@ function GroupBusPanel({ groupCanvasRefs, faderH }: GroupBusPanelProps) {
                   style={{ opacity: bus.muted ? 0.25 : 1, transition: "opacity 0.15s" }}
                 />
 
-                <div className="relative" style={{ width: 8, height: faderH }}>
-                  <div className="absolute inset-0 rounded bg-[var(--ed-bg-primary)] border border-white/[0.06]" />
-                  <div
-                    className="absolute left-0 right-0 h-px bg-white/20"
-                    style={{ top: `${(1 - 750 / 1000) * 100}%` }}
-                  />
-                  <input
-                    type="range"
-                    min={0}
-                    max={1000}
-                    value={bus.fader}
-                    onChange={(e) => setGroupFader(id, Number(e.target.value))}
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    style={{ writingMode: "vertical-lr" as const, direction: "rtl" as const }}
-                    title={`${(faderToGain(bus.fader) * 100).toFixed(0)}%`}
-                  />
-                  <div
-                    className="absolute left-1/2 -translate-x-1/2 w-4 h-2 rounded-sm bg-[#3a3a3a] border border-white/20 pointer-events-none"
-                    style={{ top: `calc(${(1 - bus.fader / 1000)} * (100% - 8px))` }}
-                  />
-                </div>
+                <MixerFader
+                  value={bus.fader}
+                  onChange={(v) => setGroupFader(id, v)}
+                  height={faderH}
+                  showDb
+                />
               </div>
 
               <button
@@ -286,7 +273,7 @@ function GroupBusPanel({ groupCanvasRefs, faderH }: GroupBusPanelProps) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function MixerBar({ embedded = false }: { embedded?: boolean } = {}) {
+export function MixerBar({ embedded = false, onOpenPad }: { embedded?: boolean; onOpenPad?: () => void } = {}) {
   const {
     channels, expandedChannel,
     setFader, setMute, setSolo, setPan, setEQ, setSendRev, setSendDly, setExpanded,
@@ -324,6 +311,7 @@ export function MixerBar({ embedded = false }: { embedded?: boolean } = {}) {
 
   return (
     <div className="relative flex flex-col shrink-0 bg-[#0e0e0e] border-t border-white/[0.07]">
+      {!embedded && <MelodyLayerQuickStrip onOpenPad={onOpenPad} />}
       {/* ── Top resize handle — drag up to grow, drag down to shrink ─────── */}
       {!embedded && (
         <div
@@ -425,31 +413,12 @@ export function MixerBar({ embedded = false }: { embedded?: boolean } = {}) {
                   style={{ opacity: ch.muted ? 0.25 : 1, transition: "opacity 0.15s" }}
                 />
 
-                {/* Fader */}
-                <div className="relative" style={{ width: 8, height: faderH }}>
-                  <div className="absolute inset-0 rounded bg-[var(--ed-bg-primary)] border border-white/[0.06]" />
-                  {/* Unity tick */}
-                  <div
-                    className="absolute left-0 right-0 h-px bg-white/20"
-                    style={{ top: `${(1 - 750 / 1000) * 100}%` }}
-                  />
-                  {/* Thumb */}
-                  <input
-                    type="range"
-                    min={0}
-                    max={1000}
-                    value={ch.fader}
-                    onChange={(e) => setFader(id, Number(e.target.value))}
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    style={{ writingMode: "vertical-lr" as const, direction: "rtl" as const }}
-                    title={`${(faderToGain(ch.fader) * 100).toFixed(0)}%`}
-                  />
-                  {/* Visual thumb */}
-                  <div
-                    className="absolute left-1/2 -translate-x-1/2 w-4 h-2 rounded-sm bg-[#3a3a3a] border border-white/20 pointer-events-none"
-                    style={{ top: `calc(${(1 - ch.fader / 1000)} * (100% - 8px))` }}
-                  />
-                </div>
+                <MixerFader
+                  value={ch.fader}
+                  onChange={(v) => setFader(id, v)}
+                  height={faderH}
+                  showDb={id >= 12}
+                />
               </div>
 
               {/* Mute + Solo */}

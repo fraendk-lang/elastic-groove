@@ -11,6 +11,12 @@ export const NUM_MIXER_CHANNELS = 28;
 
 /** Fader position 0-1000 (750 = 0dB unity) */
 export type FaderPos = number;
+export const FADER_UNITY = 750;
+export const FADER_MAX = 1000;
+
+export function clampFaderPos(v: number): number {
+  return Math.max(0, Math.min(FADER_MAX, Math.round(v)));
+}
 
 export interface ChannelMixState {
   fader:   FaderPos;   // 0-1000, 750 = unity
@@ -37,13 +43,24 @@ export interface GroupBusState {
   muted: boolean;
 }
 
+const DEFAULT_GROUP_FADERS: Record<GroupBusId, number> = {
+  drums: 750,
+  hats: 750,
+  perc: 750,
+  bass: 680,
+  chords: 750,
+  melody: 750,
+  sampler: 750,
+  loops: 750,
+};
+
 const BALANCED_FADERS: readonly number[] = [
   620, 640, 640, 640, 640, 640,  // 0-5: drums (ch0=kick loudest)
   580, 580, 580, 580,             // 6-9: hats
   630, 630,                       // 10-11: perc
-  620,                            // 12: bass
-  660,                            // 13: chords
-  670,                            // 14: melody/lead
+  500,                            // 12: bass (sits under drums — sub is loud at source)
+  670,                            // 13: chords
+  680,                            // 14: melody/lead
   700,                            // 15: sampler
   ...new Array(8).fill(700),      // 16-23: LP 1–8
   670, 660, 650,                  // 24-26: LAY 1–3
@@ -128,7 +145,7 @@ export const useMixerBarStore = create<MixerBarState>((set) => ({
   channels: Array.from({ length: NUM_MIXER_CHANNELS }, (_, i) => defaultChannel(i)),
   expandedChannel: null,
   groupBuses: Object.fromEntries(
-    GROUP_BUS_IDS.map((id) => [id, { fader: 750, muted: false }])
+    GROUP_BUS_IDS.map((id) => [id, { fader: DEFAULT_GROUP_FADERS[id], muted: false }])
   ) as Record<GroupBusId, GroupBusState>,
 
   setFader: (ch, val) =>
@@ -185,4 +202,18 @@ export function faderToGain(pos: number): number {
   if (p <= 0) return 0;
   const x = p / 0.75;
   return x < 1 ? x * x * x * 0.5 + 0.5 * x : 1 + (x - 1) * 1.5;
+}
+
+/** Fader position → dB (relative to unity at 750). */
+export function faderPosToDb(pos: number): number {
+  if (pos <= 5) return -Infinity;
+  const g = faderToGain(pos);
+  return 20 * Math.log10(g);
+}
+
+export function formatFaderDb(pos: number, digits = 1): string {
+  const db = faderPosToDb(pos);
+  if (!isFinite(db)) return "-∞";
+  const sign = db >= 0 ? "+" : "";
+  return `${sign}${db.toFixed(digits)}`;
 }

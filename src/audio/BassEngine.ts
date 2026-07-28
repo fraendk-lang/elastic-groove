@@ -61,7 +61,7 @@ export const DEFAULT_BASS_PARAMS: BassParams = {
   slideTime: 60,
   legato: false,
   distortion: 0.14,   // was 0.08 — more analog grit and warmth
-  volume: 0.7,
+  volume: 0.65,
   subOsc: 0,
   punch: 0.35,        // was 0.3 — slightly more transient snap
   harmonics: 0.15,

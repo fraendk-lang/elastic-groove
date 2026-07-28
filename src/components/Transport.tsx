@@ -2,8 +2,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useDrumStore, setFillMode } from "../store/drumStore";
 import { useArrangementStore } from "../store/arrangementStore";
 import { resetAll } from "../utils/resetAll";
+import { stopMelodyPlayback } from "../utils/stopMelodyPlayback";
 import { useSceneStore } from "../store/sceneStore";
-import { downloadMidi } from "../utils/midiExport";
+import { downloadSessionMidi } from "../utils/sessionMidiExport";
 import { sharePattern } from "../utils/patternShare";
 import { startSongRecording, stopSongRecording, isRecording, type ExportState } from "../utils/songExport";
 import { autoRecordExport, cancelAutoRecord, type RecordExportProgress } from "../utils/autoRecordExport";
@@ -217,8 +218,12 @@ export function Transport({
           &rsaquo;
         </button>
         <button
-          onClick={clearPattern}
-          aria-label="Clear drum pattern"
+          onClick={() => {
+            stopMelodyPlayback({ disableMelodyLayers: false });
+            clearPattern();
+          }}
+          aria-label="Clear drum pattern and stop melody playback"
+          title="Drums leeren + Melody stoppen (Layer-Patterns bleiben — ✕ L3 oder RESET zum Löschen)"
           className="text-[7px] text-white/15 hover:text-red-400/60 transition-colors ml-0.5 font-bold tracking-wider"
         >
           CLR
@@ -290,7 +295,7 @@ export function Transport({
 
         <ExportMenu
           onSave={onOpenBrowser}
-          onMidiExport={() => downloadMidi(pattern, bpm)}
+          onMidiExport={() => downloadSessionMidi(pattern, bpm)}
           onShare={() => sharePattern(pattern, bpm)}
         />
         <ResampleMenu />
@@ -644,7 +649,7 @@ function ExportMenu({ onSave, onMidiExport, onShare }: {
             onClick={() => { onMidiExport(); setOpen(false); }}
             className="w-full text-left px-3 py-1.5 text-[9px] text-white/70 hover:text-white hover:bg-white/8 transition-colors flex items-center gap-2"
           >
-            <span className="text-[7px] text-white/30">🎹</span> Export MIDI
+            <span className="text-[7px] text-white/30">🎹</span> Export Session MIDI
           </button>
 
           <div className="border-t border-white/8 my-1" />

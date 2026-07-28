@@ -53,6 +53,14 @@ export function setPianoRollEnabled(enabled: boolean): void {
   _pianoRollEnabled = enabled;
 }
 
+/** Release any piano-roll voices and reset internal step counters. */
+export function stopPianoRollPlayback(): void {
+  releaseAllActiveNotes();
+  _lastPlaybackStep = -1;
+  _pianoRollStepCounter = 0;
+  _prevDrumStep = -1;
+}
+
 function releaseAllActiveNotes(): void {
   if (_activePlaybackNotes.size === 0) return;
   const now = audioEngine.currentTime + 0.005;

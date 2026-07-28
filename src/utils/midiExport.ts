@@ -251,6 +251,97 @@ export function patternToMidi(
   return new Uint8Array([...header, ...track0, ...track1, ...track2, ...track3, ...track4]);
 }
 
+/** Single-part note list in beats (for melody layers / pad step export). */
+export interface BeatMidiNote {
+  midi: number;
+  startBeat: number;
+  durationBeats: number;
+  velocity?: number;
+}
+
+function buildBeatNoteTrack(
+  notes: BeatMidiNote[],
+  channel: number,
+  trackName: string,
+): number[] {
+  interface TimedEvent {
+    tick: number;
+    isNoteOn: boolean;
+    note: number;
+    velocity: number;
+  }
+
+  const sorted = [...notes].sort((a, b) => a.startBeat - b.startBeat);
+  const timedEvents: TimedEvent[] = [];
+
+  for (const n of sorted) {
+    const startTick = Math.round(n.startBeat * TICKS_PER_QUARTER);
+    const durationTicks = Math.max(1, Math.round(n.durationBeats * TICKS_PER_QUARTER));
+    const vel = Math.max(1, Math.min(127, Math.round((n.velocity ?? 0.8) * 127)));
+    timedEvents.push({ tick: startTick, isNoteOn: true, note: n.midi, velocity: vel });
+    timedEvents.push({ tick: startTick + durationTicks, isNoteOn: false, note: n.midi, velocity: 0 });
+  }
+
+  timedEvents.sort((a, b) => {
+    if (a.tick !== b.tick) return a.tick - b.tick;
+    return a.isNoteOn ? 1 : -1;
+  });
+
+  const noteOnStatus = 0x90 | channel;
+  const noteOffStatus = 0x80 | channel;
+  const trackBytes: number[] = [];
+
+  const nameBytes = Array.from(new TextEncoder().encode(trackName));
+  trackBytes.push(0x00);
+  trackBytes.push(0xff, 0x03, nameBytes.length, ...nameBytes);
+
+  let lastTick = 0;
+  for (const evt of timedEvents) {
+    trackBytes.push(...writeVLQ(evt.tick - lastTick));
+    trackBytes.push(evt.isNoteOn ? noteOnStatus : noteOffStatus, evt.note, evt.isNoteOn ? evt.velocity : 0);
+    lastTick = evt.tick;
+  }
+
+  trackBytes.push(0x00, 0xff, 0x2f, 0x00);
+  return buildMTrk(trackBytes);
+}
+
+/** Format-1 SMF: tempo track + one melody note track. */
+export function beatNotesToMidi(
+  notes: BeatMidiNote[],
+  bpm: number,
+  trackName: string,
+): Uint8Array {
+  const track0 = buildTempoTrack(bpm, trackName);
+  const track1 = buildBeatNoteTrack(notes, 2, trackName);
+  const header = [
+    ...Array.from(new TextEncoder().encode("MThd")),
+    ...write32(6),
+    ...write16(1),
+    ...write16(2),
+    ...write16(TICKS_PER_QUARTER),
+  ];
+  return new Uint8Array([...header, ...track0, ...track1]);
+}
+
+export function downloadBeatNotesMidi(
+  notes: BeatMidiNote[],
+  bpm: number,
+  fileName: string,
+  trackName = "Melody",
+): void {
+  if (notes.length === 0) return;
+  const midi = beatNotesToMidi(notes, bpm, trackName);
+  const blob = new Blob([midi.buffer as ArrayBuffer], { type: "audio/midi" });
+  const url = URL.createObjectURL(blob);
+  const safe = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = safe.endsWith(".mid") ? safe : `${safe}.mid`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** Download pattern as .mid file */
 export function downloadMidi(pattern: PatternData, bpm: number): void {
   const midi = patternToMidi(pattern, bpm, _persistedNotes);

@@ -11,6 +11,7 @@ import { loadDemoSong } from "../data/loadDemoSong";
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  onLoaded?: (hint?: string) => void;
 }
 
 // Per-genre accent colors for the cards
@@ -24,11 +25,12 @@ const GENRE_COLORS: Record<string, { fg: string; bg: string; border: string }> =
 
 const DEFAULT_COLOR = { fg: "#94a3b8", bg: "rgba(148,163,184,0.10)", border: "rgba(148,163,184,0.30)" };
 
-export function DemoSongPicker({ isOpen, onClose }: Props) {
+export function DemoSongPicker({ isOpen, onClose, onLoaded }: Props) {
   if (!isOpen) return null;
 
   const handlePick = (song: DemoSong) => {
-    loadDemoSong(song);
+    const { hint } = loadDemoSong(song);
+    onLoaded?.(hint);
     onClose();
   };
 
@@ -47,7 +49,7 @@ export function DemoSongPicker({ isOpen, onClose }: Props) {
           <div>
             <h2 className="text-sm font-bold text-white tracking-wide">DEMO SONGS</h2>
             <p className="text-[10px] text-white/40 mt-0.5">
-              Click a song → it loads everything and starts playing
+              Kit, Bass, Chords & Melody — lädt alles und startet sofort
             </p>
           </div>
           <button

@@ -72,13 +72,13 @@ export const BASS_PRESETS: BassPreset[] = [
   { name: "Tape Bass",       params: bp({ waveform: "sawtooth", cutoff: 430, resonance:  7, envMod: 0.22, decay: 210, accent: 0.28, slideTime:  36, distortion: 0.28, volume: 0.63, subOsc: 0.34, filterModel: "ladder", harmonics: 0.22, punch: 0.24, subFilter: 70 }) },
   { name: "Dub Pressure",    params: bp({ cutoff: 280, resonance: 10, envMod: 0.25, decay: 450, accent: 0.35, slideTime:  90, distortion: 0.10, volume: 0.75, subOsc: 0.65 }) },
   { name: "Rubber Bass",     params: bp({ waveform: "square",   cutoff: 420, resonance: 14, envMod: 0.50, decay: 180, slideTime:  40, distortion: 0.20, subOsc: 0.30 }) },
-  { name: "DH Moog Bass",    params: bp({ waveform: "sawtooth", cutoff: 320, resonance:  6, envMod: 0.20, decay: 250, accent: 0.25, slideTime:  30, distortion: 0.08, volume: 0.72, subOsc: 0.60, filterModel: "ladder", punch: 0.20, harmonics: 0.10, subFilter: 65 }) },
+  { name: "DH Moog Bass",    params: bp({ waveform: "sawtooth", cutoff: 320, resonance:  6, envMod: 0.20, decay: 250, accent: 0.25, slideTime:  30, distortion: 0.08, volume: 0.65, subOsc: 0.48, filterModel: "ladder", punch: 0.20, harmonics: 0.10, subFilter: 65 }) },
   { name: "DH Rubber Dub",   params: bp({ waveform: "square",   cutoff: 280, resonance:  5, envMod: 0.15, decay: 380, accent: 0.20, slideTime:  70, distortion: 0.06, volume: 0.75, subOsc: 0.70, filterModel: "ladder", punch: 0.15, harmonics: 0.08, subFilter: 55 }) },
   { name: "House Groove",    params: bp({ waveform: "square",   cutoff: 440, resonance:  9, envMod: 0.34, decay: 165, accent: 0.34, slideTime:  22, distortion: 0.12, volume: 0.72, subOsc: 0.42, filterModel: "ladder", punch: 0.34, harmonics: 0.12, subFilter: 62 }) },
   { name: "Neo Soul Bass",   params: bp({ waveform: "sawtooth", cutoff: 350, resonance:  5, envMod: 0.18, decay: 280, accent: 0.22, slideTime:  45, distortion: 0.06, volume: 0.70, subOsc: 0.55, filterModel: "ladder", punch: 0.18, harmonics: 0.12, subFilter: 60 }) },
   { name: "Smooth Jazz Bass",params: bp({ waveform: "sawtooth", cutoff: 280, resonance:  3, envMod: 0.10, decay: 350, accent: 0.15, slideTime:  80, distortion: 0.04, volume: 0.72, subOsc: 0.60, filterModel: "ladder", punch: 0.10, harmonics: 0.15, subFilter: 58 }) },
   { name: "Velvet Sub",      params: bp({ waveform: "square",   cutoff: 350, resonance:  5, envMod: 0.10, decay: 500, accent: 0.15, slideTime: 100, distortion: 0.00, volume: 0.65, subOsc: 0.55 }) },
-  { name: "Lo-Fi Tape Sub",  params: bp({ waveform: "square",   cutoff: 280, resonance:  3, envMod: 0.10, decay: 400, accent: 0.15, slideTime:  60, distortion: 0.15, volume: 0.72, subOsc: 0.65, filterModel: "ladder", punch: 0.10, harmonics: 0.20, subFilter: 55 }) },
+  { name: "Lo-Fi Tape Sub",  params: bp({ waveform: "square",   cutoff: 280, resonance:  3, envMod: 0.10, decay: 400, accent: 0.15, slideTime:  60, distortion: 0.15, volume: 0.66, subOsc: 0.52, filterModel: "ladder", punch: 0.10, harmonics: 0.20, subFilter: 55 }) },
   { name: "Moving Bass",     params: bp({ waveform: "sawtooth", cutoff: 300, resonance:  4, envMod: 0.40, decay: 600, accent: 0.05, slideTime: 100, distortion: 0.00, volume: 0.70, subOsc: 0.60, punch: 0.05 }) },
 
   // ── Dirty / Driven ──
@@ -131,7 +131,7 @@ export const BASS_PRESETS: BassPreset[] = [
   // ── Jungle / DnB ──
   { name: "Jungle Roller",   params: bp({ waveform: "square",   cutoff: 280, resonance:  5, envMod: 0.12, decay: 400, accent: 0.18, slideTime: 45, distortion: 0.08, volume: 0.82, subOsc: 0.80, filterModel: "ladder", punch: 0.20, subFilter: 48 }) },
   { name: "Neurofunk Reese", params: bp({ waveform: "sawtooth", cutoff: 380, resonance: 18, envMod: 0.25, decay: 350, accent: 0.35, slideTime: 80, distortion: 0.55, volume: 0.65, subOsc: 0.55, filterModel: "ladder", lfoEnabled: true, lfoTarget: "filter", lfoShape: "sine", lfoRate: 0.6, lfoDepth: 0.35, lfoSync: true, lfoSyncNote: "1/2" }) },
-  { name: "Liquid DnB",      params: bp({ waveform: "sawtooth", cutoff: 360, resonance:  6, envMod: 0.22, decay: 280, accent: 0.25, slideTime: 60, distortion: 0.06, volume: 0.72, subOsc: 0.60, filterModel: "ladder", punch: 0.18, harmonics: 0.12 }) },
+  { name: "Liquid DnB",      params: bp({ waveform: "sawtooth", cutoff: 360, resonance:  6, envMod: 0.22, decay: 280, accent: 0.25, slideTime: 60, distortion: 0.06, volume: 0.65, subOsc: 0.48, filterModel: "ladder", punch: 0.18, harmonics: 0.12 }) },
 
   // ── Minimal / Techno ──
   { name: "Minimal Click",   params: bp({ waveform: "square",   cutoff: 180, resonance:  1, envMod: 0.03, decay: 350, accent: 0.08, slideTime:  0, distortion: 0.00, volume: 0.90, subOsc: 0.95, filterModel: "ladder", punch: 0.05, subFilter: 40 }) },
@@ -155,10 +155,10 @@ export const BASS_PRESETS: BassPreset[] = [
   { name: "Grime Stab",       params: bp({ waveform: "sawtooth", cutoff: 520, resonance: 16, envMod: 0.72, decay:  85, accent: 0.65, slideTime: 15, distortion: 0.55, volume: 0.58, subOsc: 0.15, filterModel: "ladder", punch: 0.45, harmonics: 0.22 }) },
 
   // ── New (May 2026): Synthwave / Detroit / Liquid Pluck / Ambient Drone ─────
-  { name: "Synthwave Drive",  params: bp({ waveform: "sawtooth", cutoff: 480, resonance:  9, envMod: 0.40, decay: 240, accent: 0.40, slideTime: 30, distortion: 0.22, volume: 0.68, subOsc: 0.50, filterModel: "ladder", punch: 0.28, harmonics: 0.20, subFilter: 65, lfoEnabled: true, lfoTarget: "filter", lfoShape: "sine", lfoRate: 0.4, lfoDepth: 0.25, lfoSync: true, lfoSyncNote: "1" }) },
+  { name: "Synthwave Drive",  params: bp({ waveform: "sawtooth", cutoff: 480, resonance:  9, envMod: 0.40, decay: 240, accent: 0.40, slideTime: 30, distortion: 0.22, volume: 0.63, subOsc: 0.40, filterModel: "ladder", punch: 0.28, harmonics: 0.20, subFilter: 65, lfoEnabled: true, lfoTarget: "filter", lfoShape: "sine", lfoRate: 0.4, lfoDepth: 0.25, lfoSync: true, lfoSyncNote: "1" }) },
   { name: "Detroit Auto-Wah", params: bp({ waveform: "sawtooth", cutoff: 350, resonance: 14, envMod: 0.55, decay: 220, accent: 0.45, slideTime: 25, distortion: 0.18, volume: 0.65, subOsc: 0.40, filterModel: "ladder", punch: 0.30, harmonics: 0.18, subFilter: 60, lfoEnabled: true, lfoTarget: "filter", lfoShape: "triangle", lfoRate: 1.5, lfoDepth: 0.55, lfoSync: true, lfoSyncNote: "1/4" }) },
   { name: "Liquid Pluck",     params: bp({ waveform: "sawtooth", cutoff: 320, resonance:  6, envMod: 0.45, decay:  90, accent: 0.30, slideTime: 12, distortion: 0.05, volume: 0.70, subOsc: 0.55, filterModel: "ladder", punch: 0.32, harmonics: 0.10, subFilter: 58 }) },
-  { name: "Ambient Drone",    params: bp({ waveform: "sawtooth", cutoff: 240, resonance:  4, envMod: 0.20, decay: 1500, accent: 0.05, slideTime: 200, distortion: 0.00, volume: 0.62, subOsc: 0.75, filterModel: "ladder", punch: 0.02, harmonics: 0.08, subFilter: 50, lfoEnabled: true, lfoTarget: "filter", lfoShape: "sine", lfoRate: 0.15, lfoDepth: 0.45, lfoSync: false }) },
+  { name: "Ambient Drone",    params: bp({ waveform: "sawtooth", cutoff: 240, resonance:  4, envMod: 0.20, decay: 1500, accent: 0.05, slideTime: 200, distortion: 0.00, volume: 0.58, subOsc: 0.58, filterModel: "ladder", punch: 0.02, harmonics: 0.08, subFilter: 50, lfoEnabled: true, lfoTarget: "filter", lfoShape: "sine", lfoRate: 0.15, lfoDepth: 0.45, lfoSync: false }) },
 ];
 
 export const BASS_CORE_PRESETS = BASS_PRESETS.filter((preset) =>

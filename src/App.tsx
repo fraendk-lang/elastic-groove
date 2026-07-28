@@ -48,6 +48,7 @@ import { chordsEngine } from "./audio/ChordsEngine";
 import { melodyEngine } from "./audio/MelodyEngine";
 import { melodyLayerEngines } from "./audio/melodyLayerEngines";
 import { initMelodyLayerFx, melodyLayerFxChains, initMelodyEngineFx } from "./audio/MelodyLayerFx";
+import { initMelodyPadToneFx, createMelodyPadToneFx, registerLayer3PadToneFx, applyPadToneAmountPercent } from "./audio/MelodyPadToneFx";
 // Activate melody-layer scheduler at app start (not tied to tab visibility)
 import "./components/MelodyLayers/melodyLayerScheduler";
 import { ensureArrangementSchedulerInit } from "./audio/arrangementScheduler";
@@ -68,6 +69,7 @@ import { useMelodyLayerStore } from "./store/melodyLayerStore";
 import { useClipStore } from "./store/clipStore";
 import { setSceneStoreRef, setClipStoreRef } from "./store/drumStore";
 import { audioEngine } from "./audio/AudioEngine";
+import { beatFxManager } from "./audio/BeatFx";
 import { useDrumStore } from "./store/drumStore";
 import { useOverlayStore } from "./store/overlayStore";
 import { useKeyboard } from "./hooks/useKeyboard";
@@ -88,6 +90,7 @@ export function App() {
   const [fxRackOpen, setFxRackOpen] = useState(false);
   const [sceneMiniOpen, setSceneMiniOpen] = useState(false);
   const [demoPickerOpen, setDemoPickerOpen] = useState(false);
+  const [demoLoadHint, setDemoLoadHint] = useState<string | null>(null);
   // Recording mode (driven by ?demo=record URL param) — see effect below
   const [recordMode, setRecordMode] = useState<{ audio: boolean; bars: number } | null>(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(360);
@@ -354,6 +357,7 @@ export function App() {
             customChordSets: pad.customChordSets,
             loopBars: pad.loopBars,
             quantize: pad.quantize,
+            toneFxAmount: pad.toneFxAmount,
           },
           melodyLayerState: {
             enabled: layers.enabled,
@@ -413,7 +417,8 @@ export function App() {
         s.gridSnap !== p.gridSnap || s.glide !== p.glide ||
         s.trailEnabled !== p.trailEnabled || s.chordFollow !== p.chordFollow ||
         s.gridRows !== p.gridRows ||
-        s.loopBars !== p.loopBars || s.quantize !== p.quantize
+        s.loopBars !== p.loopBars || s.quantize !== p.quantize ||
+        s.toneFxAmount !== p.toneFxAmount
       ) triggerSave();
     });
     const unsubLayers = useMelodyLayerStore.subscribe((s, p) => {
@@ -452,17 +457,23 @@ export function App() {
         const chordsCh = audioEngine.getChannelOutput(13);
         if (chordsOut && chordsCh) chordsOut.connect(chordsCh);
 
-        // Melody Lead → Channel 14
+        // Melody Lead → Channel 14 (via pad tone FX: chorus + glue comp)
         melodyEngine.init(ctx);
         const melodyOut = melodyEngine.getOutput();
         const melodyCh = audioEngine.getChannelOutput(14);
-        if (melodyOut && melodyCh) melodyOut.connect(melodyCh);
+        const padToneFx = initMelodyPadToneFx(ctx);
+        applyPadToneAmountPercent(usePerformancePadStore.getState().toneFxAmount ?? 78);
+        const melodyToMixer = padToneFx.output;
+        if (melodyOut && melodyCh) {
+          melodyOut.connect(padToneFx.input);
+          padToneFx.output.connect(melodyCh);
+        }
 
         const masterGainNode = audioEngine.getMasterGainNode();
 
-        // Tap melodyEngine output into Space FX chain (parallel send for PerformancePad)
-        if (melodyOut && masterGainNode) {
-          initMelodyEngineFx(ctx, masterGainNode).connectSource(melodyOut);
+        // Tap post-FX melody into Space FX chain (parallel send for PerformancePad)
+        if (melodyToMixer && masterGainNode) {
+          initMelodyEngineFx(ctx, masterGainNode).connectSource(melodyToMixer);
         }
 
         // Melody Layer engines 1–3 → individual channels 24/25/26 (LAY 1–3)
@@ -474,10 +485,21 @@ export function App() {
             layerEngine.init(ctx);
             const layerOut = layerEngine.getOutput();
             const layCh = audioEngine.getChannelOutput(23 + i); // 24, 25, 26
-            if (layerOut && layCh) layerOut.connect(layCh);
-            // Tap output into Space FX chain (parallel send — doesn't affect dry path)
+            let layerFxSource: AudioNode | null = layerOut;
+            if (layerOut && layCh) {
+              if (i === 3) {
+                const layerTone = createMelodyPadToneFx(ctx, 0);
+                registerLayer3PadToneFx(layerTone);
+                applyPadToneAmountPercent(usePerformancePadStore.getState().toneFxAmount ?? 78);
+                layerOut.connect(layerTone.input);
+                layerTone.output.connect(layCh);
+                layerFxSource = layerTone.output;
+              } else {
+                layerOut.connect(layCh);
+              }
+            }
             const fxChain = melodyLayerFxChains[i - 1];
-            if (layerOut && fxChain) fxChain.connectSource(layerOut);
+            if (layerFxSource && fxChain) fxChain.connectSource(layerFxSource);
           }
         }
 
@@ -491,6 +513,7 @@ export function App() {
         // init() auto-connects output → channel 16 and is idempotent (safe to call again after HMR)
         loopPlayerEngine.init(ctx);
         initAudioClipEngine();
+        beatFxManager.connect();
       }
       setAudioReady(true);
 
@@ -668,6 +691,20 @@ export function App() {
         </div>
       )}
 
+      {demoLoadHint && (
+        <div
+          className="absolute top-12 left-1/2 -translate-x-1/2 z-[180] px-4 py-2 bg-[#0d0d12]/95 border border-[#a78bfa]/50 rounded-lg shadow-2xl text-[11px] text-white/85 max-w-md text-center cursor-pointer hover:bg-[#15151e]"
+          onClick={() => {
+            setDemoLoadHint(null);
+            overlay.openOverlay("performancePad");
+          }}
+        >
+          <span className="font-bold text-[#c4b5fd]">{demoLoadHint}</span>
+          <br />
+          <span className="text-white/65 underline text-[#c4b5fd]/90">Tippe hier für Performance Pad</span>
+        </div>
+      )}
+
       <div data-rec-hide="transport">
       <BetaBanner />
       <Transport
@@ -744,7 +781,9 @@ export function App() {
         </div>
 
         {/* Permanent Mixer Bar — always visible below sequencer */}
-        <div data-rec-hide="mixerbar"><MixerBar /></div>
+        <div data-rec-hide="mixerbar">
+          <MixerBar onOpenPad={() => overlay.openOverlay("performancePad")} />
+        </div>
 
         <div className="relative shrink-0">
           <div
@@ -840,11 +879,21 @@ export function App() {
       <OnboardingModal onComplete={() => setDemoPickerOpen(true)} />
       <PWAStatus />
       {recordMode?.audio && <RecordingControls bars={recordMode.bars} />}
-      <DemoSongPicker isOpen={demoPickerOpen} onClose={() => setDemoPickerOpen(false)} />
+      <DemoSongPicker
+        isOpen={demoPickerOpen}
+        onClose={() => setDemoPickerOpen(false)}
+        onLoaded={(hint) => {
+          if (hint) {
+            setDemoLoadHint(hint);
+            window.setTimeout(() => setDemoLoadHint(null), 6000);
+          }
+        }}
+      />
       <InstallHintIOS />
       {performancePadLooping && !performancePadOpen && (
         <div
-          className="fixed bottom-5 right-5 z-[45] flex items-center gap-2 rounded-full border border-[var(--ed-accent-melody)]/40 bg-[var(--ed-bg-secondary)]/95 px-3 py-2 shadow-lg backdrop-blur-sm"
+          className="fixed left-4 z-[45] flex items-center gap-2 rounded-full border border-[var(--ed-accent-melody)]/40 bg-[var(--ed-bg-secondary)]/95 px-3 py-2 shadow-lg backdrop-blur-sm"
+          style={{ bottom: bottomPanelHeight + 14 + 8 }}
           role="status"
           aria-live="polite"
         >

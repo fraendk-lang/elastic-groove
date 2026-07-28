@@ -3,6 +3,7 @@
  */
 
 import { audioEngine } from "../audio/AudioEngine";
+import { getSampleById } from "../audio/SampleLibrary";
 import { sampleManager } from "../audio/SampleManager";
 import type { PatternData } from "../store/drumStore";
 
@@ -67,6 +68,25 @@ export interface DrumKit {
       ratchets?: Record<number, number>; // stepIdx → ratchetCount
     }>;
   };
+}
+
+/** Load custom kit voice assignments (sample IDs from IndexedDB) into the sample engine. */
+export function applyCustomKitVoiceSamples(voices: (string | null)[]): void {
+  for (let v = 0; v < 12; v++) {
+    sampleManager.clearSample(v);
+  }
+  for (let v = 0; v < voices.length && v < 12; v++) {
+    const id = voices[v];
+    if (!id) continue;
+    const sample = getSampleById(id);
+    if (!sample) {
+      console.warn(`[KitManager] Custom kit sample not found: ${id}`);
+      continue;
+    }
+    sampleManager
+      .loadFromUrl(sample.path, sample.name, v)
+      .catch((err) => console.warn(`[KitManager] Custom sample load failed for voice ${v}:`, err));
+  }
 }
 
 // Apply a kit to the audio engine

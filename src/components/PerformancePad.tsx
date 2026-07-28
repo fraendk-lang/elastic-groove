@@ -13,9 +13,10 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { usePerformancePadStore, CHORD_SETS, type YAxisParam, type PadTarget, type PadMode } from "../store/performancePadStore";
 import { PerformancePadStepLane } from "./PerformancePadStepLane";
 import { ChaosPad } from "./ChaosPad";
-import { useMelodyStore, MELODY_PRESETS } from "../store/melodyStore";
+import { useMelodyStore, MELODY_PRESETS, MELODY_PAD_SOUND_PRESETS } from "../store/melodyStore";
 import { useBassStore, BASS_PRESETS } from "../store/bassStore";
 import { useDrumStore, getDrumTransportStartTime } from "../store/drumStore";
+import { useSceneStore } from "../store/sceneStore";
 import { melodyEngine } from "../audio/MelodyEngine";
 import { bassEngine, SCALES } from "../audio/BassEngine";
 import { chordsEngine } from "../audio/ChordsEngine";
@@ -24,8 +25,15 @@ import { sendFxManager } from "../audio/SendFx";
 import { ArpScheduler } from "../audio/ArpScheduler";
 import { DEFAULT_ARP_SETTINGS } from "../audio/Arpeggiator";
 import { getMelodyEngineFxChain } from "../audio/MelodyLayerFx";
+import { applyPadToneAmountPercent } from "../audio/MelodyPadToneFx";
 import { chaosFxBus, type FxMode } from "../audio/ChaosFxBus";
 import { beatFxManager, type BeatFxId } from "../audio/BeatFx";
+import { applyStepPatternToMelodyLayer } from "./PerformancePad/performancePadMelodyLayerSync";
+import { downloadBeatNotesMidi } from "../utils/midiExport";
+import { stepNotesToBeatMidiNotes } from "./PerformancePad/performancePadMidiExport";
+import { captureSessionToScene } from "../utils/sessionCaptureToScene";
+import { clearL3PadPattern } from "./PerformancePad/clearPadMelodyLayer";
+import { padStepScheduler } from "./PerformancePad/performancePadStepScheduler";
 
 /** Beat-FX set exposed by the embedded ChaosPad — driven by the master beatFxManager. */
 const CHAOS_BEAT_FX: ReadonlyArray<{ id: BeatFxId; label: string }> = [
@@ -113,8 +121,8 @@ const _padVolumeByTarget: Record<string, number> = {};
 export function PerformancePad({ isOpen, onClose }: Props) {
   const {
     target, mode, chordSetIndex, yParam, scaleOctaves, scaleLowestOct, gridSnap, trailEnabled, chordFollow, gridRows,
-    events, fxEvents, isArmed, isRecording, isStepRecording, stepNotes, stepCursor, stepGridMs, isLooping, loopDuration, loopBars, quantize,
-    setTarget, setMode, setChordSetIndex, setYParam, setScaleOctaves, setScaleLowestOct, setGridSnap, setTrailEnabled, setChordFollow, setGridRows,
+    events, fxEvents, isArmed, isRecording, isStepRecording, stepNotes, stepCursor, stepGridMs, isLooping, loopDuration, loopBars, quantize, toneFxAmount,
+    setTarget, setMode, setChordSetIndex, setYParam, setScaleOctaves, setScaleLowestOct, setGridSnap, setTrailEnabled, setChordFollow, setGridRows, setToneFxAmount,
     armRecording, startStepRecording, stopRecording, placeStepNote, setStepCursor, clearStepAt, skipStep, undoLastStep, appendEvent, appendFxEvent, clearEvents, clearFxEvents, setLoopBars, setQuantize,
     startLoop, stopLoop,
     customChordSets, setChordIntervals, resetChordCell,
@@ -148,6 +156,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   const handlePrevPreset = target === "melody" ? prevMelodyPreset : prevBassPreset;
   const handleNextPreset = target === "melody" ? nextMelodyPreset : nextBassPreset;
   const handleLoadPreset = target === "melody" ? loadMelodyPreset : loadBassPreset;
+  const lastPresetPreviewRef = useRef(0);
 
   const rootNote = target === "melody" ? melodyRoot : bassRoot;
   const scaleName = target === "melody" ? melodyScale : bassScale;
@@ -185,6 +194,8 @@ export function PerformancePad({ isOpen, onClose }: Props) {
 
   // Step index currently sounding during loop playback (null when not looping).
   const [playheadStep, setPlayheadStep] = useState<number | null>(null);
+  /** Brief confirmation after step pattern lands in Melody Layer L3. */
+  const [layerExportHint, setLayerExportHint] = useState<string | null>(null);
   useEffect(() => {
     if (!isLooping || stepGridMs <= 0 || loopDuration <= 0) {
       setPlayheadStep(null);
@@ -236,8 +247,22 @@ export function PerformancePad({ isOpen, onClose }: Props) {
 
   useEffect(() => {
     if (!isOpen) return;
+    beatFxManager.connect();
     beatFxManager.setContext({ target: target === "melody" ? "melody" : "bass", bpm });
   }, [isOpen, target, bpm]);
+
+  /** Keep MelodyEngine in sync with the selected preset when the pad opens or preset changes. */
+  useEffect(() => {
+    if (!isOpen || target !== "melody") return;
+    const preset = MELODY_PRESETS[melodyPresetIndex];
+    if (preset) melodyEngine.setParams(preset.params);
+  }, [isOpen, target, melodyPresetIndex]);
+
+  /** Apply stored tone-FX amount when pad opens (chorus + comp glue). */
+  useEffect(() => {
+    if (!isOpen || target !== "melody") return;
+    applyPadToneAmountPercent(toneFxAmount);
+  }, [isOpen, target, toneFxAmount]);
 
   useEffect(() => {
     if (isOpen) return;
@@ -343,11 +368,11 @@ export function PerformancePad({ isOpen, onClose }: Props) {
     if (!isOpen) return;
     const wakeUp = () => {
       // Don't bother if we don't actually need audio right now
-      if (!arpOnRef.current && activeVoicesRef.current.size === 0) return;
+      if (!arpOnRef.current && activeVoicesRef.current.size === 0
+          && !padStepScheduler.isRunning) return;
       audioEngine.resume();
-      // Force the scheduler to schedule notes immediately rather than wait for
-      // the next worklet tick to get unstuck on the main thread.
       arpSchedulerRef.current?.kick();
+      padStepScheduler.kick();
     };
     const onVisibility = () => {
       if (document.visibilityState === "visible") wakeUp();
@@ -443,6 +468,111 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   // NOTE: xToMidi intentionally omitted from deps — it's defined below but stable via useCallback.
   // We rely on closure capture at call time (handler fires after all hooks are declared).
 
+  const exportStepToMelodyLayer = useCallback((opts?: { silent?: boolean }) => {
+    if (target !== "melody") return null;
+    const s = usePerformancePadStore.getState();
+    if (!s.stepNotes.some((n) => n !== null)) return null;
+
+    const result = applyStepPatternToMelodyLayer({
+      stepNotes: s.stepNotes,
+      stepGridMs: s.stepGridMs,
+      loopDurationMs: s.loopDuration,
+      loopBars: s.loopBars,
+      bpm,
+      pitchMap: {
+        scaleName,
+        rootNote,
+        scaleLowestOct,
+        scaleOctaves,
+        gridSnap,
+      },
+      presetIndex: melodyPresetIndex,
+    });
+    if (!result) return null;
+
+    if (!opts?.silent) {
+      let hint = `${result.noteCount} Noten → Melody Layer L${result.layerIndex + 1} (${result.barLength} bar)`;
+      if (!useDrumStore.getState().isPlaying) {
+        hint += " · ▶ Drums starten zum Abspielen";
+      }
+      setLayerExportHint(hint);
+      window.setTimeout(() => setLayerExportHint(null), 4000);
+    }
+    return result;
+  }, [target, bpm, scaleName, rootNote, scaleLowestOct, scaleOctaves, gridSnap, melodyPresetIndex]);
+
+  const previewMelodySound = useCallback(() => {
+    if (target !== "melody") return;
+    const now = performance.now();
+    if (now - lastPresetPreviewRef.current < 120) return;
+    lastPresetPreviewRef.current = now;
+    const ctx = audioEngine.getAudioContext();
+    if (!ctx) return;
+    void audioEngine.resume();
+    const scale = SCALES[scaleName] ?? SCALES["Chromatic"]!;
+    const deg = scale[Math.min(3, scale.length - 1)] ?? 0;
+    const midi = rootNote + scaleLowestOct * 12 + 12 + deg;
+    melodyEngine.triggerPolyNote(midi, ctx.currentTime + 0.02, 0.35, 0.78, false);
+  }, [target, scaleName, rootNote, scaleLowestOct]);
+
+  const previewMelodyPreset = useCallback((index: number) => {
+    loadMelodyPreset(index);
+    previewMelodySound();
+  }, [loadMelodyPreset, previewMelodySound]);
+
+  const onPrevPreset = useCallback(() => {
+    handlePrevPreset();
+    if (target === "melody") previewMelodySound();
+  }, [handlePrevPreset, target, previewMelodySound]);
+
+  const onNextPreset = useCallback(() => {
+    handleNextPreset();
+    if (target === "melody") previewMelodySound();
+  }, [handleNextPreset, target, previewMelodySound]);
+
+  const onLoadPreset = useCallback((index: number) => {
+    if (target === "melody") previewMelodyPreset(index);
+    else loadBassPreset(index);
+  }, [target, previewMelodyPreset, loadBassPreset]);
+
+  const exportStepToMidi = useCallback(() => {
+    const s = usePerformancePadStore.getState();
+    if (!s.stepNotes.some((n) => n !== null)) return;
+    const notes = stepNotesToBeatMidiNotes(
+      s.stepNotes,
+      s.stepGridMs,
+      bpm,
+      { scaleName, rootNote, scaleLowestOct, scaleOctaves, gridSnap },
+    );
+    downloadBeatNotesMidi(notes, bpm, `melody-pad-${Date.now()}`, "Melody Pad");
+  }, [bpm, scaleName, rootNote, scaleLowestOct, scaleOctaves, gridSnap]);
+
+  const capturePadToScene = useCallback(() => {
+    if (target === "melody" && usePerformancePadStore.getState().stepNotes.some((n) => n !== null)) {
+      exportStepToMelodyLayer({ silent: true });
+    }
+    const emptySlot = useSceneStore.getState().scenes.findIndex((s) => s === null);
+    const slot = emptySlot >= 0 ? emptySlot : 0;
+    captureSessionToScene(slot);
+    setLayerExportHint(`Session → Scene ${slot + 1} gespeichert`);
+    window.setTimeout(() => setLayerExportHint(null), 4000);
+  }, [target, exportStepToMelodyLayer]);
+
+  const handleStopRecording = useCallback((tempo: number) => {
+    const wasStep = usePerformancePadStore.getState().isStepRecording;
+    stopRecording(tempo);
+    if (wasStep && target === "melody") {
+      exportStepToMelodyLayer({ silent: true });
+    }
+  }, [stopRecording, target, exportStepToMelodyLayer]);
+
+  const handleClose = useCallback(() => {
+    if (target === "melody" && usePerformancePadStore.getState().stepNotes.some((n) => n !== null)) {
+      exportStepToMelodyLayer({ silent: true });
+    }
+    onClose();
+  }, [target, exportStepToMelodyLayer, onClose]);
+
   const xToMidi = useCallback((x: number): number => {
     const scale = SCALES[scaleName] ?? SCALES["Chromatic"]!;
     const baseMidi = rootNote + scaleLowestOct * 12;
@@ -486,7 +616,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
     if (!ctx) return null;
     // Default: trigger ahead of now with small lookahead (reduces past-schedule clicks).
     // Loop playback overrides startTime + duration to schedule on the audio clock.
-    const startTime = opts?.startTime ?? (ctx.currentTime + 0.008);
+    const startTime = opts?.startTime ?? (ctx.currentTime + 0.015);
     const duration = opts?.duration ?? 30.0;
 
     // Apply Y modulation to engine params BEFORE trigger
@@ -861,6 +991,56 @@ export function PerformancePad({ isOpen, onClose }: Props) {
     const timers: ReturnType<typeof setTimeout>[] = [];
     const playbackVoices = new Map<number, ActiveVoice>();
 
+    const drumState = useDrumStore.getState();
+    const bpm = drumState.bpm;
+    const msPerBar = (60000 / bpm) * 4;
+
+    // Step patterns with drums running: sample-accurate via SchedulerClock.
+    const padState = usePerformancePadStore.getState();
+    const isStepPattern =
+      pairedNotes.length > 0 && pairedNotes.every((n) => n.pointerId <= -1000);
+    const hasStepNotes = padState.stepNotes.some((n) => n !== null);
+
+    if (isStepPattern && hasStepNotes && drumState.isPlaying) {
+      padStepScheduler.start({
+        stepNotes: padState.stepNotes,
+        gridMs: padState.stepGridMs,
+        loopDurationMs: dur,
+        xToMidi,
+        onLoopWallStart: (wallStart) => usePerformancePadStore.getState().setLoopWallStart(wallStart),
+        onNote: (midi, atTime, duration, velocity, y) => {
+          if (!usePerformancePadStore.getState().isLooping) return;
+          fireVoice(midi, velocity, y, { startTime: atTime, duration });
+        },
+      });
+
+      // FX automation still uses wall-clock timers (non-critical timing).
+      const wallStart = performance.now() + 0.05 * 1000;
+      for (const ev of sortedFxEvents) {
+        const wallDelay = wallStart - performance.now() + ev.t;
+        if (wallDelay < -20) continue;
+        const timer = setTimeout(() => {
+          if (!usePerformancePadStore.getState().isLooping) return;
+          if (ev.kind === "xy") {
+            chaosFxBus.setXY("melody", ev.mode, ev.x, ev.y, useDrumStore.getState().bpm);
+          } else if (ev.kind === "beat-down") {
+            beatFxManager.setContext({ target: "melody", bpm: useDrumStore.getState().bpm });
+            beatFxManager.startEffect(ev.fxId);
+          } else {
+            beatFxManager.stopEffect(ev.fxId);
+          }
+        }, Math.max(0, wallDelay));
+        timers.push(timer);
+      }
+
+      return () => {
+        padStepScheduler.stop();
+        timers.forEach(clearTimeout);
+        const activeFx = beatFxManager.activeEffect;
+        if (activeFx) beatFxManager.stopEffect(activeFx);
+      };
+    }
+
     // ── Loop-start anchor ─────────────────────────────────────────────
     // If drums are playing, line up iteration #0 with the NEXT bar boundary
     // so the gesture loop locks to the same grid as the sequencer. Without
@@ -868,9 +1048,6 @@ export function PerformancePad({ isOpen, onClose }: Props) {
     // any phase offset against the drums then sounds like the loop is
     // "almost but not quite" in time. With it, the first note of the
     // gesture lands exactly on a downbeat regardless of when STOP was hit.
-    const drumState = useDrumStore.getState();
-    const bpm = drumState.bpm;
-    const msPerBar = (60000 / bpm) * 4;
     let iterationAudioStart: number;
     if (drumState.isPlaying) {
       const transportStart = getDrumTransportStartTime();
@@ -1022,7 +1199,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
       const activeFx = beatFxManager.activeEffect;
       if (activeFx) beatFxManager.stopEffect(activeFx);
     };
-  }, [isLooping, events, fxEvents, loopDuration, xToMidi, fireVoice, modulateVoice, repitchVoice, gridSnap, target]);
+  }, [isLooping, events, fxEvents, loopDuration, stepNotes, stepGridMs, xToMidi, fireVoice, modulateVoice, repitchVoice, gridSnap, target]);
 
   // ── Visual: chord/pitch grid + particle trail ──
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1421,16 +1598,38 @@ export function PerformancePad({ isOpen, onClose }: Props) {
 
         <div className="mx-1 h-4 w-px bg-white/10" />
 
+        {target === "melody" && MELODY_PAD_SOUND_PRESETS.length > 0 && (
+          <>
+            <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-md px-1 max-w-[280px] overflow-x-auto">
+              <span className="text-[8px] text-white/25 mr-0.5 shrink-0">PAD</span>
+              {MELODY_PAD_SOUND_PRESETS.map(({ label, index, hint }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => previewMelodyPreset(index)}
+                  className={`px-1.5 h-5 text-[8px] font-bold rounded transition-all shrink-0 ${
+                    melodyPresetIndex === index
+                      ? "bg-[var(--ed-accent-melody)]/30 text-[var(--ed-accent-melody)]"
+                      : "text-white/30 hover:text-white/60"
+                  }`}
+                  title={hint}
+                >{label}</button>
+              ))}
+            </div>
+            <div className="mx-1 h-4 w-px bg-white/10" />
+          </>
+        )}
+
         {/* Sound Preset picker — prev / dropdown / next */}
         <div className="flex items-center gap-0.5 bg-white/[0.04] rounded-md px-1">
           <span className="text-[8px] text-[var(--ed-text-muted)] mr-1">SOUND</span>
-          <button onClick={handlePrevPreset}
+          <button onClick={onPrevPreset}
             className="w-5 h-5 text-[10px] text-white/40 hover:text-white/80 transition-colors"
             title="Previous preset"
           >‹</button>
           <select
             value={activePresetIndex}
-            onChange={(e) => handleLoadPreset(Number(e.target.value))}
+            onChange={(e) => onLoadPreset(Number(e.target.value))}
             className="h-6 px-1.5 text-[9px] font-bold bg-transparent text-[var(--ed-accent-melody)]/85 hover:text-[var(--ed-accent-melody)] cursor-pointer outline-none border-0 max-w-[130px]"
             title={`${currentPresetName} (${activePresetIndex + 1}/${totalPresets})`}
           >
@@ -1440,7 +1639,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
               </option>
             ))}
           </select>
-          <button onClick={handleNextPreset}
+          <button onClick={onNextPreset}
             className="w-5 h-5 text-[10px] text-white/40 hover:text-white/80 transition-colors"
             title="Next preset"
           >›</button>
@@ -1561,6 +1760,30 @@ export function PerformancePad({ isOpen, onClose }: Props) {
             <div className="mx-1 h-4 w-px bg-white/10" />
           </>
         )}
+
+        {/* ── Tone FX — chorus + compression glue (melody target only) ── */}
+        {target === "melody" && (
+          <div className="flex items-center gap-1.5 bg-white/[0.03] rounded-md px-1.5 py-0.5">
+            <span className="text-[8px] text-white/20 mr-0.5 tracking-wider" title="Chorus width + gentle compression">TONE</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={toneFxAmount}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setToneFxAmount(v);
+                applyPadToneAmountPercent(v);
+              }}
+              className="w-[72px] h-1 accent-amber-400 cursor-pointer"
+              title={`Pad tone glue: ${toneFxAmount}% — chorus + compression (0 = dry)`}
+            />
+            <span className="text-[7px] text-amber-400/85 font-mono tabular-nums w-7 text-right">{toneFxAmount}%</span>
+          </div>
+        )}
+
+        {target === "melody" && <div className="mx-1 h-4 w-px bg-white/10" />}
 
         {/* ── Space FX ── Shimmer + Freeze (melody target only) ── */}
         {target === "melody" && (
@@ -1695,13 +1918,13 @@ export function PerformancePad({ isOpen, onClose }: Props) {
             >⏵ STEP</button>
           </>
         ) : isArmed ? (
-          <button onClick={() => stopRecording(bpm)}
+          <button onClick={() => handleStopRecording(bpm)}
             className="px-3 h-6 text-[9px] font-bold rounded bg-yellow-500/25 text-yellow-300 animate-pulse transition-all"
             title="Waiting for first note — click to cancel"
           >◉ ARMED</button>
         ) : isStepRecording ? (
           <>
-            <button onClick={() => stopRecording(bpm)}
+            <button onClick={() => handleStopRecording(bpm)}
               className="px-3 h-6 text-[9px] font-bold rounded bg-blue-500/40 text-blue-100 animate-pulse transition-all"
               title="Stop step recording"
             >■ STOP STEP</button>
@@ -1719,9 +1942,45 @@ export function PerformancePad({ isOpen, onClose }: Props) {
             </span>
           </>
         ) : (
-          <button onClick={() => stopRecording(bpm)}
+          <button onClick={() => handleStopRecording(bpm)}
             className="px-3 h-6 text-[9px] font-bold rounded bg-red-500/40 text-red-100 animate-pulse transition-all"
           >■ STOP</button>
+        )}
+
+        {stepNotes.some((n) => n !== null) && !isStepRecording && target === "melody" && (
+          <>
+            <button
+              onClick={() => exportStepToMelodyLayer()}
+              className="px-3 h-6 text-[9px] font-bold rounded bg-[#a78bfa]/15 text-[#c4b5fd] hover:bg-[#a78bfa]/25 transition-all"
+              title="Step-Pattern in Melody Layer L3 legen — spielt weiter wenn Pad zu ist (sync mit Drums)"
+            >→ MELODY LAYER</button>
+            <button
+              onClick={() => exportStepToMidi()}
+              className="px-3 h-6 text-[9px] font-bold rounded bg-[var(--ed-accent-melody)]/15 text-[var(--ed-accent-melody)] hover:bg-[var(--ed-accent-melody)]/25 transition-all"
+              title="Step-Pattern als .mid Datei speichern"
+            >↓ MIDI</button>
+            <button
+              onClick={capturePadToScene}
+              className="px-3 h-6 text-[9px] font-bold rounded bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 transition-all"
+              title="Gesamte Session (Drums, Bass, Chords, Melody Layers) in Scene speichern"
+            >→ SCENE</button>
+            <button
+              onClick={() => {
+                if (!window.confirm("Pad-Steps und L3 Layer löschen?")) return;
+                clearL3PadPattern(true);
+                setLayerExportHint("L3 + Pad geleert");
+                window.setTimeout(() => setLayerExportHint(null), 3000);
+              }}
+              className="px-2 h-6 text-[9px] font-bold rounded bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-all"
+              title="Step-Sequencer und Melody Layer L3 leeren"
+            >✕ CLR</button>
+          </>
+        )}
+
+        {layerExportHint && (
+          <span className="text-[8px] text-[#c4b5fd] font-mono animate-pulse max-w-[220px] truncate" title={layerExportHint}>
+            {layerExportHint}
+          </span>
         )}
 
         {(events.length > 0 || fxEvents.length > 0) && !isRecording && !isArmed && (
@@ -1757,7 +2016,7 @@ export function PerformancePad({ isOpen, onClose }: Props) {
           </>
         )}
 
-        <button onClick={onClose}
+        <button onClick={handleClose}
           className="ml-auto w-7 h-7 text-[12px] text-white/40 hover:text-white/80 hover:bg-white/10 rounded transition-all"
         >✕</button>
       </div>

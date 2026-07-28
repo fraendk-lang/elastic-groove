@@ -51,16 +51,16 @@ export interface MelodyLayer {
 export const DEFAULT_SYNTH: LayerSynth = {
   presetIndex: 0,
   octaveOffset: 0,
-  cutoff: 0.5,
-  resonance: 0.27,   // ~8/30
-  envMod: 0.4,
-  filterDecay: 150,
-  attack: 5,
-  decay: 50,
-  sustain: 1.0,
-  release: 80,
-  distortion: 0.15,
-  volume: 0.7,
+  cutoff: 0.55,
+  resonance: 0.30,   // ~9/30 — slightly brighter default
+  envMod: 0.45,
+  filterDecay: 180,
+  attack: 8,
+  decay: 120,
+  sustain: 0.88,
+  release: 140,
+  distortion: 0.10,
+  volume: 0.72,
   reverbSend: 0.0,
   delaySend: 0.0,
   shimmerEnabled: false,
@@ -126,6 +126,8 @@ interface MelodyLayerState {
   setSynth: (layerId: string, patch: Partial<LayerSynth>) => void;
   setSynthFull: (layerId: string, synth: LayerSynth) => void;
   clearNotes: (layerId: string) => void;
+  /** Replace all notes on a layer (used by pad export, piano-roll push, etc.). */
+  replaceNotes: (layerId: string, notes: MelodyLayerNote[]) => void;
   applyLayerEuclidean: (
     pulses: number,
     eucSteps: number,
@@ -142,7 +144,7 @@ interface MelodyLayerState {
 
 // Start with 2 layers so polymeter is immediately audible:
 // Layer 0 = 2-bar Classic Lead, Layer 1 = 4-bar FM Bell
-const initialLayer0: MelodyLayer = { ...makeLayer(0), barLength: 2, synth: { ...DEFAULT_SYNTH, presetIndex: 0 } };
+const initialLayer0: MelodyLayer = { ...makeLayer(0), barLength: 2, synth: { ...DEFAULT_SYNTH, presetIndex: 1 } };
 const initialLayer1: MelodyLayer = { ...makeLayer(1), barLength: 4, synth: { ...DEFAULT_SYNTH, presetIndex: 2 } };
 
 export const useMelodyLayerStore = create<MelodyLayerState>((set) => ({
@@ -213,6 +215,14 @@ export const useMelodyLayerStore = create<MelodyLayerState>((set) => ({
   clearNotes: (layerId) => set((s) => {
     pushHistory(s.layers);
     return { layers: s.layers.map((l) => l.id === layerId ? { ...l, notes: [] } : l) };
+  }),
+
+  replaceNotes: (layerId, notes) => set((s) => {
+    pushHistory(s.layers);
+    return {
+      layers: s.layers.map((l) => l.id === layerId ? { ...l, notes: [...notes] } : l),
+      selectedNoteId: null,
+    };
   }),
 
   undo: () => set((s) => {

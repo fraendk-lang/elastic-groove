@@ -10,8 +10,11 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { useDrumStore } from "../store/drumStore";
 import { useCustomKitStore } from "../store/customKitStore";
 import { FACTORY_KITS, KIT_CATEGORIES } from "../kits/factoryKits";
-import { applyKit, kitToPattern } from "../kits/KitManager";
+import { applyCustomKitVoiceSamples, applyKit, kitToPattern } from "../kits/KitManager";
+import { prepareDrumsOnlyKitLoad } from "../utils/prepareDrumsOnlyKitLoad";
 import type { DrumKit } from "../kits/KitManager";
+import { previewKitGroove, cancelKitPreview } from "../kits/kitPreview";
+import { isHeroKit } from "../kits/heroKits";
 // sampleManager used indirectly via customKitStore
 
 interface KitBrowserProps {
@@ -79,6 +82,7 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
   const [activeSoundset, setActiveSoundset] = useState<string | null>(null);
   const [activeKitId, setActiveKitId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [heroOnly, setHeroOnly] = useState(false);
   const customKits = useCustomKitStore((s) => s.kits);
   const saveCurrentKit = useCustomKitStore((s) => s.saveCurrentKit);
   const loadCustomKit = useCustomKitStore((s) => s.loadKit);
@@ -89,6 +93,10 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
   useEffect(() => {
     listKits().catch((err) => console.error("Failed to load custom kits:", err));
   }, [listKits]);
+
+  useEffect(() => {
+    if (!isOpen) cancelKitPreview();
+  }, [isOpen]);
 
   // ESC closes the panel — touch-friendly safety net plus desktop convenience.
   useEffect(() => {
@@ -113,8 +121,12 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
   const handleLoadCustomKit = useCallback(
     async (id: string) => {
       try {
+        cancelKitPreview();
+        prepareDrumsOnlyKitLoad();
         await loadCustomKit(id);
-        // Stop playback when loading a kit
+        const { voiceSamples } = useCustomKitStore.getState();
+        applyCustomKitVoiceSamples(voiceSamples);
+
         const { isPlaying, togglePlay } = useDrumStore.getState();
         if (isPlaying) togglePlay();
         setActiveKitId(id);
@@ -140,9 +152,16 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
   const soundsets = useMemo(() => buildSoundsets(FACTORY_KITS), []);
 
   const filteredSoundsets = useMemo(() => {
-    if (!searchQuery) return soundsets;
+    let sets = soundsets;
+    if (heroOnly) {
+      sets = sets.map((s) => ({
+        ...s,
+        kits: s.kits.filter((k) => isHeroKit(k.id)),
+      })).filter((s) => s.kits.length > 0);
+    }
+    if (!searchQuery) return sets;
     const q = searchQuery.toLowerCase();
-    return soundsets.map((s) => ({
+    return sets.map((s) => ({
       ...s,
       kits: s.kits.filter((k) =>
         k.name.toLowerCase().includes(q) ||
@@ -150,11 +169,13 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
         k.category.toLowerCase().includes(q)
       ),
     })).filter((s) => s.kits.length > 0);
-  }, [soundsets, searchQuery]);
+  }, [soundsets, searchQuery, heroOnly]);
 
   const selectedSoundset = filteredSoundsets.find((s) => s.id === activeSoundset) ?? null;
 
   const loadKit = useCallback((kit: DrumKit, autoPlay = true) => {
+    cancelKitPreview();
+    prepareDrumsOnlyKitLoad();
     const { isPlaying, togglePlay } = useDrumStore.getState();
     if (isPlaying) togglePlay();
 
@@ -206,6 +227,18 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setHeroOnly((v) => !v)}
+              className={`h-7 px-2 text-[9px] font-bold rounded border transition-all ${
+                heroOnly
+                  ? "border-amber-500/50 bg-amber-500/15 text-amber-300"
+                  : "border-[var(--ed-border)] text-[var(--ed-text-muted)] hover:text-[var(--ed-text-primary)]"
+              }`}
+              title="Nur kuratierte Hero-Kits anzeigen"
+            >
+              ★ HERO
+            </button>
             <input
               type="text"
               placeholder="Search..."
@@ -345,11 +378,11 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {selectedSoundset.kits.map((kit) => {
                     const isLoaded = activeKitId === kit.id;
+                    const hero = isHeroKit(kit.id);
                     return (
-                      <button
+                      <div
                         key={kit.id}
-                        onClick={() => loadKit(kit)}
-                        className={`text-left p-3 rounded-lg transition-all ${
+                        className={`relative text-left p-3 rounded-lg transition-all ${
                           isLoaded
                             ? "ring-2 bg-[var(--ed-bg-elevated)]"
                             : "bg-[var(--ed-bg-surface)] border border-[var(--ed-border)] hover:border-opacity-60 hover:bg-[var(--ed-bg-elevated)]"
@@ -362,22 +395,39 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
                         }}
                       >
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[11px] font-bold text-[var(--ed-text-primary)]">
+                          <button
+                            type="button"
+                            onClick={() => loadKit(kit)}
+                            className="text-[11px] font-bold text-[var(--ed-text-primary)] text-left flex-1"
+                          >
+                            {hero && <span className="text-amber-400 mr-1" title="Hero kit">★</span>}
                             {kit.name}
-                          </span>
-                          {isLoaded && (
-                            <span
-                              className="text-[7px] font-bold px-1.5 py-0.5 rounded-full"
-                              style={{
-                                backgroundColor: selectedSoundset.color + "20",
-                                color: selectedSoundset.color,
-                              }}
+                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => previewKitGroove(kit)}
+                              className="w-6 h-6 rounded-full text-[10px] font-bold bg-white/8 text-white/70 hover:bg-[var(--ed-accent-green)]/20 hover:text-[var(--ed-accent-green)] transition-all"
+                              title="1-Bar Preview"
+                              aria-label={`Preview ${kit.name}`}
                             >
-                              ACTIVE
-                            </span>
-                          )}
+                              ▶
+                            </button>
+                            {isLoaded && (
+                              <span
+                                className="text-[7px] font-bold px-1.5 py-0.5 rounded-full"
+                                style={{
+                                  backgroundColor: selectedSoundset.color + "20",
+                                  color: selectedSoundset.color,
+                                }}
+                              >
+                                ACTIVE
+                              </span>
+                            )}
+                          </div>
                         </div>
 
+                        <button type="button" onClick={() => loadKit(kit)} className="w-full text-left">
                         {kit.description && (
                           <p className="text-[9px] text-[var(--ed-text-muted)] mb-1.5 line-clamp-1">
                             {kit.description}
@@ -401,7 +451,8 @@ export function KitBrowser({ isOpen, onClose }: KitBrowserProps) {
                             </span>
                           )}
                         </div>
-                      </button>
+                        </button>
+                      </div>
                     );
                   })}
                 </div>

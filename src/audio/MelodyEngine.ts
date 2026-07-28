@@ -104,9 +104,16 @@ export interface MelodyStep {
 
 interface PolyVoiceSlot {
   osc: OscillatorNode;
+  unisonOsc1: OscillatorNode;
+  unisonOsc2: OscillatorNode;
+  unisonGain1: GainNode;
+  unisonGain2: GainNode;
   sub: OscillatorNode;
   subGain: GainNode;
-  filter: BiquadFilterNode;
+  oscMix: GainNode;
+  filterChain: FilterChain;
+  vibratoLfo: OscillatorNode;
+  vibratoGain: GainNode;
   vca: GainNode;
   dist: WaveShaperNode;
   inUse: boolean;
@@ -639,6 +646,7 @@ export class MelodyEngine {
           const res = Math.min(this.params.resonance / 30, 1.0);
           this.filterChain.update(cutoff, res, this.ctx.currentTime);
         }
+        this.destroyPool();
       }
     }
     if (this.subGain && p.subOsc !== undefined) this.subGain.gain.value = p.subOsc;
@@ -665,12 +673,8 @@ export class MelodyEngine {
     // Update every active pool voice filter directly
     for (const voice of this.voicePool) {
       if (!voice.inUse) continue;
-      voice.filter.frequency.cancelScheduledValues(now);
-      voice.filter.frequency.setValueAtTime(clampedCutoff, now);
-      if (resonanceNorm !== undefined) {
-        // Q range: 0.5 (res=0) → 30 (res=1)
-        voice.filter.Q.value = 0.5 + resonanceNorm * 29.5;
-      }
+      const res = resonanceNorm !== undefined ? Math.min(resonanceNorm, 1.0) : Math.min(this.params.resonance / 30, 1.0);
+      voice.filterChain.update(clampedCutoff, res, now);
     }
     // Also store as base cutoff so next trigger starts here, not from old preset value
     this.params.cutoff = clampedCutoff;
@@ -690,6 +694,10 @@ export class MelodyEngine {
       if (!voice.inUse) continue;
       voice.osc.detune.cancelScheduledValues(now);
       voice.osc.detune.setTargetAtTime(cents, now, 0.015);
+      voice.unisonOsc1.detune.cancelScheduledValues(now);
+      voice.unisonOsc1.detune.setTargetAtTime(cents, now, 0.015);
+      voice.unisonOsc2.detune.cancelScheduledValues(now);
+      voice.unisonOsc2.detune.setTargetAtTime(cents, now, 0.015);
       voice.sub.detune.cancelScheduledValues(now);
       voice.sub.detune.setTargetAtTime(cents, now, 0.015);
     }
@@ -704,6 +712,8 @@ export class MelodyEngine {
     const now = this.ctx.currentTime;
     for (const voice of this.voicePool) {
       voice.osc.detune.setTargetAtTime(0, now, 0.03);
+      voice.unisonOsc1.detune.setTargetAtTime(0, now, 0.03);
+      voice.unisonOsc2.detune.setTargetAtTime(0, now, 0.03);
       voice.sub.detune.setTargetAtTime(0, now, 0.03);
     }
     if (this.osc) this.osc.detune.setTargetAtTime(0, now, 0.03);
@@ -778,20 +788,36 @@ export class MelodyEngine {
 
   // 4 pool voices covers the max useful case: 1 melody note + triad (3 layers).
   // Halves the pool oscillator count from 16 running oscillators to 8.
-  private static readonly POOL_SIZE = 4;
+  private static readonly POOL_SIZE = 8;
   private voicePool: PolyVoiceSlot[] = [];
   private poolReady = false;
+  private poolFilterModel: FilterModel | null = null;
 
   // ── Pool lifecycle ──────────────────────────────────────────────────────────
 
   private initPool(): void {
-    if (this.poolReady || !this.ctx || !this.output) return;
+    if (!this.ctx || !this.output) return;
+    const filterModel = this.params.filterModel;
+    if (this.poolReady && this.poolFilterModel === filterModel) return;
+    if (this.poolReady) this.destroyPool();
+
     const ctx = this.ctx;
 
     for (let i = 0; i < MelodyEngine.POOL_SIZE; i++) {
       const osc = ctx.createOscillator();
-      osc.type = "sawtooth";
       osc.frequency.value = 261.63;
+
+      const unisonOsc1 = ctx.createOscillator();
+      unisonOsc1.frequency.value = 261.63;
+
+      const unisonOsc2 = ctx.createOscillator();
+      unisonOsc2.frequency.value = 261.63;
+
+      const unisonGain1 = ctx.createGain();
+      unisonGain1.gain.value = 0;
+
+      const unisonGain2 = ctx.createGain();
+      unisonGain2.gain.value = 0;
 
       const sub = ctx.createOscillator();
       sub.type = "square";
@@ -800,10 +826,22 @@ export class MelodyEngine {
       const subGain = ctx.createGain();
       subGain.gain.value = 0;
 
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = 2000;
-      filter.Q.value = 1;
+      const oscMix = ctx.createGain();
+      oscMix.gain.value = 1;
+
+      const vibratoLfo = ctx.createOscillator();
+      vibratoLfo.frequency.value = this.params.vibratoRate;
+
+      const vibratoGain = ctx.createGain();
+      vibratoGain.gain.value = 0;
+
+      vibratoLfo.connect(vibratoGain);
+      vibratoGain.connect(osc.frequency);
+      vibratoGain.connect(unisonOsc1.frequency);
+      vibratoGain.connect(unisonOsc2.frequency);
+      vibratoGain.connect(sub.frequency);
+
+      const filterChain = createFilterChain(ctx, filterModel);
 
       const vca = ctx.createGain();
       vca.gain.value = 0;
@@ -811,25 +849,38 @@ export class MelodyEngine {
       const dist = ctx.createWaveShaper();
       dist.curve = null;
 
-      osc.connect(filter);
+      osc.connect(oscMix);
+      unisonOsc1.connect(unisonGain1);
+      unisonGain1.connect(oscMix);
+      unisonOsc2.connect(unisonGain2);
+      unisonGain2.connect(oscMix);
       sub.connect(subGain);
-      subGain.connect(filter);
-      filter.connect(vca);
+      subGain.connect(oscMix);
+      oscMix.connect(filterChain.input);
+      filterChain.output.connect(vca);
       vca.connect(dist);
       dist.connect(this.output);
 
       osc.start();
+      unisonOsc1.start();
+      unisonOsc2.start();
       sub.start();
+      vibratoLfo.start();
 
-      this.voicePool.push({ osc, sub, subGain, filter, vca, dist, inUse: false, releaseAt: 0, stolenAt: 0 });
+      this.voicePool.push({
+        osc, unisonOsc1, unisonOsc2, unisonGain1, unisonGain2,
+        sub, subGain, oscMix, filterChain, vibratoLfo, vibratoGain,
+        vca, dist, inUse: false, releaseAt: 0, stolenAt: 0,
+      });
     }
     this.poolReady = true;
+    this.poolFilterModel = filterModel;
   }
 
   /** Find a free voice. Frees expired voices lazily (no setTimeout needed). */
   private safeScheduleTime(timeRaw: number): number {
     if (!this.ctx) return timeRaw;
-    return Math.max(timeRaw, this.ctx.currentTime + 0.002);
+    return Math.max(timeRaw, this.ctx.currentTime + 0.005);
   }
 
   /** Unmute shared output only when needed — avoids per-note gain resets that crackle under poly load. */
@@ -868,16 +919,24 @@ export class MelodyEngine {
     // Hard-clean scheduled param events before reuse.
     chosen.vca.gain.cancelScheduledValues(0);
     if (wasInUse) {
-      // Soft-steal: instant cut causes clicks when the loop is dense.
-      chosen.vca.gain.setTargetAtTime(0.0001, now, 0.003);
+      // Soft-steal: longer fade reduces clicks on dense step patterns.
+      chosen.vca.gain.setTargetAtTime(0.0001, now, 0.008);
     } else {
       chosen.vca.gain.setValueAtTime(0, now);
     }
-    chosen.filter.frequency.cancelScheduledValues(0);
-    chosen.filter.frequency.setValueAtTime(this.params.cutoff, now);
+    const resNorm = Math.min(this.params.resonance / 30, 1.0);
+    chosen.filterChain.cancelEnvelope(this.params.cutoff, resNorm, now);
     chosen.osc.frequency.cancelScheduledValues(0);
+    chosen.unisonOsc1.frequency.cancelScheduledValues(0);
+    chosen.unisonOsc2.frequency.cancelScheduledValues(0);
     chosen.sub.frequency.cancelScheduledValues(0);
     chosen.subGain.gain.cancelScheduledValues(0);
+    chosen.unisonGain1.gain.cancelScheduledValues(0);
+    chosen.unisonGain2.gain.cancelScheduledValues(0);
+    chosen.osc.detune.cancelScheduledValues(0);
+    chosen.osc.detune.setValueAtTime(0, now);
+    chosen.sub.detune.cancelScheduledValues(0);
+    chosen.sub.detune.setValueAtTime(0, now);
 
     chosen.inUse = true;
     chosen.stolenAt = wasInUse ? now : 0;
@@ -940,12 +999,34 @@ export class MelodyEngine {
     }
     voice.stolenAt = 0;
 
-    const { osc, sub, subGain, filter, vca, dist } = voice;
+    const { osc, unisonOsc1, unisonOsc2, unisonGain1, unisonGain2, sub, subGain, filterChain, vibratoLfo, vibratoGain, vca, dist } = voice;
     const freq = midiToFreq(midiNote);
 
-    // Oscillator waveform + frequency
+    // Waveform (incl. wavetable) on all oscillators
     this.applyWaveform(osc);
+    this.applyWaveform(unisonOsc1);
+    this.applyWaveform(unisonOsc2);
+
+    // Unison spread — poly path now matches mono richness
+    if (p.unison > 0.01) {
+      const unisonDetune = p.unison * 18;
+      unisonOsc1.detune.setValueAtTime(-unisonDetune, startTime);
+      unisonOsc2.detune.setValueAtTime(unisonDetune, startTime);
+      const uniLvl = 0.32;
+      unisonGain1.gain.setValueAtTime(uniLvl, startTime);
+      unisonGain2.gain.setValueAtTime(uniLvl, startTime);
+    } else {
+      unisonGain1.gain.setValueAtTime(0, startTime);
+      unisonGain2.gain.setValueAtTime(0, startTime);
+    }
+
+    // Vibrato LFO
+    vibratoLfo.frequency.setValueAtTime(p.vibratoRate, startTime);
+    vibratoGain.gain.setValueAtTime(p.vibratoDepth * 20, startTime);
+
     osc.frequency.setValueAtTime(freq, startTime);
+    unisonOsc1.frequency.setValueAtTime(freq, startTime);
+    unisonOsc2.frequency.setValueAtTime(freq, startTime);
     sub.frequency.setValueAtTime(freq / 2, startTime);
     subGain.gain.setValueAtTime(p.subOsc, startTime);
 
@@ -957,13 +1038,10 @@ export class MelodyEngine {
       const targetFreq = Math.max(20, freq * Math.pow(2, semShift / 12));
       const endTime = startTime + duration;
       osc.frequency.exponentialRampToValueAtTime(targetFreq, endTime);
+      unisonOsc1.frequency.exponentialRampToValueAtTime(targetFreq, endTime);
+      unisonOsc2.frequency.exponentialRampToValueAtTime(targetFreq, endTime);
       sub.frequency.exponentialRampToValueAtTime(Math.max(10, targetFreq / 2), endTime);
     }
-
-    // Filter type + Q
-    filter.type = (p.filterType === "highpass" || p.filterType === "bandpass" || p.filterType === "notch")
-      ? p.filterType : "lowpass";
-    filter.Q.value = Math.max(0.0001, p.resonance * 0.6);
 
     // Distortion curve (shared from mono path — same shape, no alloc)
     dist.curve = (p.distortion > 0.01 && this.distNode?.curve) ? this.distNode.curve : null;
@@ -977,15 +1055,10 @@ export class MelodyEngine {
     const filterBase = Math.max(p.cutoff, 40);
     const fAttack = 0.005;
     const fDecaySec = (p.decay / 1000) * (accent ? 0.5 : 1);
-    const fDecayTau = Math.max(0.02, fDecaySec / 3.5);
-    // Terminate the exponential at ~5× time constant (~99% converged).
-    // Without this, the browser computes the curve indefinitely — accumulates over time.
-    const fSettleTime = startTime + fAttack + fDecayTau * 5;
+    const resNorm = Math.min(p.resonance / 30, 1.0);
 
-    filter.frequency.setValueAtTime(filterBase, startTime);
-    filter.frequency.linearRampToValueAtTime(filterPeak, startTime + fAttack);
-    filter.frequency.setTargetAtTime(filterBase, startTime + fAttack, fDecayTau);
-    filter.frequency.setValueAtTime(filterBase, fSettleTime); // ← terminates the curve
+    filterChain.update(filterBase, resNorm, startTime);
+    filterChain.scheduleEnvelope(filterBase, filterPeak, fAttack, fDecaySec, resNorm, startTime);
 
     // ── Amp envelope ────────────────────────────────────────────────────────
     // Use user ADSR params; clamp release so it doesn't exceed note duration + 2s
@@ -1040,17 +1113,19 @@ export class MelodyEngine {
 
   private destroyPool(): void {
     for (const v of this.voicePool) {
-      try { v.osc.stop(); } catch { /* ok */ }
-      try { v.sub.stop(); } catch { /* ok */ }
-      try { v.osc.disconnect(); } catch { /* ok */ }
-      try { v.sub.disconnect(); } catch { /* ok */ }
-      try { v.subGain.disconnect(); } catch { /* ok */ }
-      try { v.filter.disconnect(); } catch { /* ok */ }
-      try { v.vca.disconnect(); } catch { /* ok */ }
-      try { v.dist.disconnect(); } catch { /* ok */ }
+      for (const node of [v.osc, v.unisonOsc1, v.unisonOsc2, v.sub, v.vibratoLfo]) {
+        try { node.stop(); } catch { /* ok */ }
+      }
+      for (const node of [
+        v.osc, v.unisonOsc1, v.unisonOsc2, v.unisonGain1, v.unisonGain2,
+        v.sub, v.subGain, v.oscMix, v.vibratoGain, v.vca, v.dist,
+      ]) {
+        try { node.disconnect(); } catch { /* ok */ }
+      }
     }
     this.voicePool = [];
     this.poolReady = false;
+    this.poolFilterModel = null;
   }
 }
 
