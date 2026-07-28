@@ -155,7 +155,6 @@ export function PerformancePad({ isOpen, onClose }: Props) {
   const activePresetIndex = target === "melody" ? melodyPresetIndex : bassPresetIndex;
   const handlePrevPreset = target === "melody" ? prevMelodyPreset : prevBassPreset;
   const handleNextPreset = target === "melody" ? nextMelodyPreset : nextBassPreset;
-  const handleLoadPreset = target === "melody" ? loadMelodyPreset : loadBassPreset;
   const lastPresetPreviewRef = useRef(0);
 
   const rootNote = target === "melody" ? melodyRoot : bassRoot;

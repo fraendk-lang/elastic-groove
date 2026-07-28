@@ -7,7 +7,7 @@ describe("applyMelodyStepsToPadLayer", () => {
     useMelodyLayerStore.setState({
       enabled: false,
       layers: [],
-      activeLayerId: null,
+      activeLayerId: "",
     });
   });
 
