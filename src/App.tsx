@@ -78,6 +78,7 @@ import { useMidiClock } from "./hooks/useMidiClock";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useWakeLock } from "./hooks/useWakeLock";
 import { loadSharedPattern } from "./utils/patternShare";
+import { clearComposerHandoffHash, loadComposerHandoffFromLocation } from "./utils/composerHandoff";
 import { scheduleAutoSave, loadAutoSave, AUTO_SAVE_SCHEMA_VERSION } from "./store/autoSave";
 
 export function App() {
@@ -195,6 +196,30 @@ export function App() {
 
   // Load shared pattern or auto-save on mount
   useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const composerHandoff = loadComposerHandoffFromLocation();
+    if (composerHandoff) {
+      useDrumStore.setState({ bpm: composerHandoff.bpm });
+      useChordsStore.getState().loadChordsPattern({
+        steps: composerHandoff.steps,
+        length: composerHandoff.length,
+        params: composerHandoff.params,
+        rootNote: composerHandoff.rootNote,
+        rootName: composerHandoff.rootName,
+        scaleName: composerHandoff.scaleName,
+      });
+      useBassStore.getState().setRootNote(composerHandoff.rootNote, composerHandoff.rootName);
+      useBassStore.getState().setScale(composerHandoff.scaleName);
+      clearComposerHandoffHash();
+      return;
+    }
+
+    const fromComposer = urlParams.get("from") === "composer";
+    const bpmParam = parseInt(urlParams.get("bpm") ?? "", 10);
+    if (fromComposer && bpmParam >= 40 && bpmParam <= 240) {
+      useDrumStore.setState({ bpm: bpmParam });
+    }
+
     const shared = loadSharedPattern();
     if (shared) {
       useDrumStore.setState({
